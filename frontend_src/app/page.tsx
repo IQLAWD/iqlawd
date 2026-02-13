@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
     Shield, Search, Zap, BarChart3,
     Users, Activity, Twitter, Globe, AlertTriangle,
-    Swords, ThumbsUp, ThumbsDown, Flame, Skull, X
+    Swords, ThumbsUp, ThumbsDown, Flame, Skull, X, Github
 } from "lucide-react";
 import NeuronNetwork from "./NeuronNetwork";
 import AgentSelector from "./AgentSelector";
@@ -409,6 +409,29 @@ return (
                                 <Zap className="w-5 h-5 text-zinc-400 group-hover:text-red-500" />
                                 {activeTab === 'council' && <div className="absolute -bottom-1 left-1.5 right-1.5 h-0.5 bg-red-600 rounded-full" />}
                             </button>
+
+                            <div className="w-px h-8 bg-white/10 mx-1 hidden sm:block" />
+
+                            <div className="flex items-center gap-1">
+                                <a
+                                    href="https://x.com/iqlawd?s=21"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="p-2.5 hover:bg-white/5 rounded-xl transition-all group"
+                                    title="Follow on X"
+                                >
+                                    <X className="w-4 h-4 text-zinc-500 group-hover:text-white" />
+                                </a>
+                                <a
+                                    href="https://github.com/IQLAWD/iqlawd"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="p-2.5 hover:bg-white/5 rounded-xl transition-all group"
+                                    title="View Source on GitHub"
+                                >
+                                    <Github className="w-4 h-4 text-zinc-500 group-hover:text-white" />
+                                </a>
+                            </div>
 
                             <div className="w-px h-8 bg-white/10 mx-1 hidden sm:block" />
 
