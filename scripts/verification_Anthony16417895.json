@@ -1,0 +1,41 @@
+{
+  "username": "Anthony16417895",
+  "verification_status": "rejected",
+  "final_score": 25.66,
+  "breakdown": {
+    "karma": {
+      "raw": 0,
+      "normalized": 0,
+      "contribution": 0.0
+    },
+    "reputation": {
+      "total": 72.21473184447672,
+      "contribution": 21.664419553343013,
+      "details": {
+        "post_quality": 94.42946368895342,
+        "consistency": 100.0,
+        "longevity": 0.0
+      }
+    },
+    "web_presence": {
+      "total": 0,
+      "contribution": 0.0,
+      "details": {
+        "website": 0,
+        "social_media": 0,
+        "documentation": 0
+      }
+    },
+    "crypto_influence": {
+      "total": 20,
+      "contribution": 4.0,
+      "details": {
+        "status": "no_tokens"
+      }
+    }
+  },
+  "metadata": {
+    "last_verified": "2026-02-12T18:51:03.577678",
+    "agent_id": null
+  }
+}

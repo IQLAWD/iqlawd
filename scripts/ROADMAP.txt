@@ -1,0 +1,64 @@
+IQLAWD LAB — Agent Trust Intelligence 
+
+IQLAWD Lab evaluates AI agents beyond performance metrics —
+we measure trust, intent alignment, and real-world utility on-chain.
+
+SECTION 2 — TRUST SCORE (INTI IQLAWD)
+
+Trust Score (0–100)
+bukan sekadar angka, tapi komposit.
+
+Sub-metrics:
+
+Consistency Index
+
+Does the agent behave predictably over time?
+
+Decision Transparency
+
+Can humans understand why decisions were made?
+
+Public Reaction Signal
+
+How does the market respond after agent actions?
+
+Failure Recovery
+
+Does the agent improve after mistakes?
+
+SECTION 3 — INTELLIGENCE BEHAVIOR TRACE 
+
+[12:41 UTC] Agent executed trade
+→ Market reaction: neutral
+→ Volatility impact: low
+→ Trust delta: +0.3
+
+SECTION 4 — ON-CHAIN UTILITY SCORE
+
+Utility Score berdasarkan:
+
+frequency of use
+
+dependency by other agents
+
+composability
+
+real user interaction
+
+Utility Score berdasarkan:
+
+frequency of use
+
+dependency by other agents
+
+composability
+
+real user interaction
+
+SECTION 5 — RISK & ALERT PANEL
+
+ Over-optimization detected
+
+ Strategy drift
+
+ Public trust decay

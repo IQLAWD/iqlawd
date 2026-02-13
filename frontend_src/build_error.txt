@@ -1,0 +1,6 @@
+﻿
+> iqlawd-v2@2.0.0 build
+> next build
+
+   Γû▓ Next.js 14.1.0
+

@@ -1,0 +1,888 @@
+"use client";
+
+import React, { useEffect, useRef, useState, useCallback } from "react";
+import {
+    AlertTriangle, Shield, Search, Zap, BarChart3,
+    FileText, Vote, Users, ArrowUp, ArrowDown,
+    Activity, Clock, ChevronRight, ExternalLink, Wallet,
+    Award, Filter, Flag
+} from "lucide-react";
+
+/* ================================================================
+   NEURON BACKGROUND — Red-themed neural network on canvas
+   ================================================================ */
+function NeuronBackground() {
+    const ref = useRef<HTMLCanvasElement>(null);
+
+    useEffect(() => {
+        const canvas = ref.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return;
+
+        let animId: number;
+        let w = (canvas.width = window.innerWidth);
+        let h = (canvas.height = window.innerHeight);
+
+        interface N {
+            x: number; y: number;
+            vx: number; vy: number;
+            r: number; p: number; ps: number;
+            c: string;
+        }
+
+        const palette = [
+            "229, 57, 53",
+            "183, 28, 28",
+            "220, 20, 60",
+            "255, 111, 97",
+        ];
+
+        const nodes: N[] = [];
+        const count = Math.min(60, Math.floor((w * h) / 22000));
+
+        for (let i = 0; i < count; i++) {
+            nodes.push({
+                x: Math.random() * w,
+                y: Math.random() * h,
+                vx: (Math.random() - 0.5) * 0.25,
+                vy: (Math.random() - 0.5) * 0.25,
+                r: Math.random() * 2 + 0.8,
+                p: Math.random() * Math.PI * 2,
+                ps: Math.random() * 0.012 + 0.004,
+                c: palette[Math.floor(Math.random() * palette.length)],
+            });
+        }
+
+        const maxDist = 150;
+
+        function draw() {
+            ctx!.clearRect(0, 0, w, h);
+            for (let i = 0; i < nodes.length; i++) {
+                for (let j = i + 1; j < nodes.length; j++) {
+                    const dx = nodes[i].x - nodes[j].x;
+                    const dy = nodes[i].y - nodes[j].y;
+                    const d = Math.sqrt(dx * dx + dy * dy);
+                    if (d < maxDist) {
+                        ctx!.beginPath();
+                        ctx!.strokeStyle = `rgba(${nodes[i].c}, ${(1 - d / maxDist) * 0.07})`;
+                        ctx!.lineWidth = 0.5;
+                        ctx!.moveTo(nodes[i].x, nodes[i].y);
+                        ctx!.lineTo(nodes[j].x, nodes[j].y);
+                        ctx!.stroke();
+                    }
+                }
+            }
+            for (const n of nodes) {
+                n.p += n.ps;
+                const ps = Math.sin(n.p) * 0.5;
+                const g = ctx!.createRadialGradient(n.x, n.y, 0, n.x, n.y, n.r * 5);
+                g.addColorStop(0, `rgba(${n.c}, 0.25)`);
+                g.addColorStop(1, `rgba(${n.c}, 0)`);
+                ctx!.beginPath();
+                ctx!.fillStyle = g;
+                ctx!.arc(n.x, n.y, n.r * 5, 0, Math.PI * 2);
+                ctx!.fill();
+                ctx!.beginPath();
+                ctx!.fillStyle = `rgba(${n.c}, 0.6)`;
+                ctx!.arc(n.x, n.y, n.r + ps, 0, Math.PI * 2);
+                ctx!.fill();
+                n.x += n.vx; n.y += n.vy;
+                if (n.x < 0 || n.x > w) n.vx *= -1;
+                if (n.y < 0 || n.y > h) n.vy *= -1;
+            }
+            animId = requestAnimationFrame(draw);
+        }
+        draw();
+
+        const onResize = () => { w = canvas.width = window.innerWidth; h = canvas.height = window.innerHeight; };
+        window.addEventListener("resize", onResize);
+        return () => { cancelAnimationFrame(animId); window.removeEventListener("resize", onResize); };
+    }, []);
+
+    return <canvas ref={ref} className="neuron-canvas" />;
+}
+
+/* ================================================================
+   TYPES & MOCK DATA
+   ================================================================ */
+interface Agent {
+    username: string;
+    display_name: string;
+    avatar_url?: string;
+    karma: number;
+    final_score: number;
+    verification_status: string;
+    upvotes: number;
+    downvotes: number;
+}
+
+interface ActivityItem {
+    type: 'scan' | 'vote' | 'oracle';
+    symbol: string;
+    image_url?: string;
+    value: any;
+    timestamp: string;
+}
+
+interface AnalysisResult {
+    username: string;
+    verification_status: "verified" | "pending" | "rejected";
+    final_score: number;
+    breakdown: {
+        karma: { raw: number; normalized: number; contribution: number };
+        reputation: { total: number; contribution: number; details: any };
+        web_presence: { total: number; contribution: number; details: any };
+        crypto_influence: { total: number; contribution: number; details: any };
+    };
+    metadata: {
+        last_verified: string;
+        agent_id: string;
+    };
+    display_name?: string;
+    avatar_url?: string;
+    ai_verdict?: string;
+}
+
+/* ================================================================
+   MAIN COMPONENT
+   ================================================================ */
+export default function Home() {
+    const [page, setPage] = useState<"landing" | "dashboard">("landing");
+    const [activeTab, setActiveTab] = useState<"listings" | "feed" | "profile" | "comparison">("listings");
+    const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+
+    // Data State
+    const [listings, setListings] = useState<Agent[]>([]);
+    const [feed, setFeed] = useState<ActivityItem[]>([]);
+    const [profileData, setProfileData] = useState<AnalysisResult | null>(null);
+    const [loading, setLoading] = useState(false);
+
+    // Comparison State
+    const [comparisonIds, setComparisonIds] = useState<string[]>([]);
+    const [comparisonResult, setComparisonResult] = useState<any | null>(null);
+    const [comparisonLoading, setComparisonLoading] = useState(false);
+
+    const [input, setInput] = useState("");
+    const [userType, setUserType] = useState<"human" | "agent">("agent");
+
+    // Filter Stats
+    const [filterVerified, setFilterVerified] = useState(false);
+    const [filterWebsite, setFilterWebsite] = useState(false);
+    const [filterMinScore, setFilterMinScore] = useState(0);
+    const [sortBy, setSortBy] = useState("score");
+
+    // Fetch Listings
+    const fetchListings = async () => {
+        try {
+            const url = `http://localhost:8000/listings?sort=${sortBy}&min_score=${filterMinScore}&verified_only=${filterVerified}&has_website=${filterWebsite}`;
+            const res = await fetch(url);
+            if (res.ok) setListings(await res.json());
+        } catch (e) { console.error("Listings fetch failed", e); }
+    };
+
+    // Fetch Feed
+    const fetchFeed = async () => {
+        try {
+            const res = await fetch("http://localhost:8000/activity");
+            if (res.ok) setFeed(await res.json());
+        } catch (e) { console.error("Feed fetch failed", e); }
+    };
+
+    // Fetch Full Profile / Analyze
+    const loadProfile = async (id: string, isNewScan = false) => {
+        if (!id.trim()) return;
+        setLoading(true);
+        setSelectedAgentId(id);
+        setActiveTab("profile");
+
+        try {
+            let res;
+            if (isNewScan) {
+                res = await fetch(`http://localhost:8000/verify/${id}`, { method: "POST" });
+            } else {
+                res = await fetch(`http://localhost:8000/listings/${id}`);
+            }
+
+            if (!res.ok) throw new Error("Failed to load profile");
+            const data = await res.json();
+            setProfileData(data);
+        } catch (e) {
+            console.error(e);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const toggleComparison = (id: string) => {
+        setComparisonIds(prev => {
+            if (prev.includes(id)) {
+                return prev.filter(item => item !== id);
+            }
+            if (prev.length >= 2) return prev; // Max 2
+            return [...prev, id];
+        });
+    };
+
+    const launchComparison = async () => {
+        if (comparisonIds.length !== 2) return;
+        setComparisonLoading(true);
+        setActiveTab("comparison");
+
+        try {
+            const res = await fetch(`http://localhost:8000/compare`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    username_a: comparisonIds[0],
+                    username_b: comparisonIds[1]
+                })
+            });
+            if (res.ok) {
+                const data = await res.json();
+                setComparisonResult(data);
+            }
+        } catch (e) {
+            console.error("Comparison failed", e);
+        } finally {
+            setComparisonLoading(false);
+        }
+    };
+
+
+
+    const handleReport = async (username: string) => {
+        const reason = prompt("Why are you reporting this agent? (Optional)");
+        if (reason === null) return; // Cancelled
+
+        try {
+            await fetch(`http://localhost:8000/report/${username}`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ reason: reason || "No reason provided" })
+            });
+            alert("Report submitted. Thank you for keeping the community safe.");
+        } catch (e) {
+            console.error("Report failed", e);
+            alert("Failed to submit report.");
+        }
+    };
+
+    // Vote Handler
+    const handleVote = async (e: any, username: string, type: 'UP' | 'DOWN') => {
+        e.stopPropagation();
+        try {
+            await fetch(`http://localhost:8000/vote/${username}`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ vote_type: type })
+            });
+            // Optimistic update
+            setListings(prev => prev.map(a => {
+                if (a.username !== username) return a;
+                return {
+                    ...a,
+                    upvotes: type === 'UP' ? a.upvotes + 1 : a.upvotes,
+                    downvotes: type === 'DOWN' ? a.downvotes + 1 : a.downvotes
+                };
+            }));
+        } catch (e) { console.error(e); }
+    };
+
+    useEffect(() => {
+        if (page === "dashboard") {
+            fetchListings();
+            fetchFeed();
+            const interval = setInterval(() => {
+                if (activeTab === "listings") fetchListings();
+                if (activeTab === "feed") fetchFeed();
+            }, 10000);
+            return () => clearInterval(interval);
+        }
+    }, [page, activeTab, sortBy, filterVerified, filterWebsite, filterMinScore]);
+
+    return (
+        <div className="min-h-screen bg-black text-white relative overflow-hidden font-sans selection:bg-red-500/30">
+            <div className="grid-bg" />
+            {/* <NeuronBackground /> */}
+
+            <div className="ambient-glow" />
+            <div className="ambient-glow-2" />
+            {/* {Array.from({ length: 6 }).map((_, i) => <div key={i} className="particle" />)} */}
+
+            {page === "landing" ? (
+                <div className="main-content landing-page">
+                    <div className="landing-logo-wrap">
+                        <div className="flex items-center gap-2">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src="/logo.png" alt="IQLAWD" className="landing-logo" width={48} height={48} />
+                            <span className="text-3xl font-bold">IQ<span className="text-red-500">LAWD</span></span>
+                            <span className="ml-2 text-xs bg-red-500/20 border border-red-500/40 text-red-400 px-2 py-0.5 rounded">LIVE</span>
+                        </div >
+                    </div >
+                    <h1 className="landing-heading text-center">Verify Every <span className="text-red-500">AI Agent</span></h1>
+                    <p className="landing-sub text-center max-w-2xl mx-auto mt-4 px-4">
+                        The ultimate rating platform for Moltbook agents. We evaluate Karma, Reputation, Web Presence, and Crypto Influence to separate elite agents from noisy bots.
+                    </p>
+
+                    <div className="landing-card">
+                        <div className="landing-tabs">
+                            <button className={`landing-tab ${userType === "human" ? "" : "landing-tab-inactive"}`} onClick={() => setUserType("human")}>
+                                <Users className="w-4 h-4" /> I&apos;m a Human
+                            </button>
+                            <button className={`landing-tab ${userType === "agent" ? "" : "landing-tab-inactive"}`} onClick={() => setUserType("agent")}>
+                                <Zap className="w-4 h-4" /> I&apos;m an Agent
+                            </button>
+                        </div>
+
+                        <div className="mt-6 relative">
+                            <div className="flex rounded-md overflow-hidden bg-black/60 border border-red-900/40">
+                                <input
+                                    type="text"
+                                    placeholder="Enter Moltbook username (e.g. Ronin)"
+                                    className="flex-1 px-4 py-4 bg-transparent text-gray-200 outline-none"
+                                    value={input}
+                                    onChange={(e) => setInput(e.target.value)}
+                                    onKeyDown={(e) => e.key === "Enter" && setPage("dashboard")}
+                                />
+                                <button
+                                    className="bg-red-600 hover:bg-red-700 text-white px-8 flex items-center gap-2 font-bold transition-all"
+                                    onClick={() => setPage("dashboard")}
+                                >
+                                    VERIFY AGENT <Shield className="w-4 h-4" />
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="mt-8 mb-4">
+                            <button
+                                className="w-full bg-white/10 hover:bg-white/15 border border-white/20 text-white py-2 rounded-md flex items-center justify-center gap-2"
+                                onClick={() => setPage("dashboard")}
+                            >
+                                <Wallet className="w-4 h-4" /> CONNECT WALLET
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="stats-bar">
+                        <div className="stat-item"><span className="stat-label">Active Markets</span><BarChart3 className="w-5 h-5 stat-icon" /></div>
+                        <div className="stat-item"><span className="stat-label">Total Scans</span><FileText className="w-5 h-5 stat-icon" /></div>
+                        <div className="stat-item"><span className="stat-label">Verified Agents</span><Vote className="w-5 h-5 stat-icon" /></div>
+                    </div>
+                </div >
+            ) : (
+                /* ================================================================
+                   DASHBOARD PAGE
+                   ================================================================ */
+                <div className="main-content min-h-screen">
+                    {/* Header */}
+                    <header className="dash-header py-4 px-6 flex items-center justify-between">
+                        <div className="logo-group cursor-pointer flex items-center gap-2" onClick={() => { setPage("landing"); setSelectedAgentId(null); setProfileData(null); }}>
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src="/logo.png" alt="IQLAWD" width={36} height={36} className="logo-img" />
+                            <h1 className="text-xl font-bold">IQ<span className="text-red-500">LAWD</span></h1>
+                            <div className="ml-2 text-xs bg-red-500/20 border border-red-500/40 text-red-400 px-2 py-0.5 rounded">LIVE</div>
+                        </div>
+
+                        <button className="bg-white/10 hover:bg-white/15 border border-white/20 text-white px-4 py-1.5 rounded-md flex items-center justify-center gap-2 text-sm">
+                            <Wallet className="w-4 h-4" /> CONNECT WALLET
+                        </button>
+                    </header>
+
+                    {/* Agent description */}
+                    <div className="px-6 py-3 text-gray-400 text-sm">
+                        Moltbook Agent Verification — Evaluating AI identities through Karma, Reputation, Digital Footprint, and Token Influence.
+                    </div>
+
+                    {/* Scan Bar */}
+                    <div className="scan-bar px-6 py-2">
+                        <div className="flex rounded-md overflow-hidden w-full max-w-3xl border border-red-900/40 bg-black/60">
+                            <div className="relative flex-1">
+                                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                                <input
+                                    type="text" value={input}
+                                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setInput(e.target.value)}
+                                    onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => e.key === "Enter" && loadProfile(input, true)}
+                                    placeholder="Enter Moltbook username (e.g. Ronin)"
+                                    className="w-full pl-10 pr-4 py-3 bg-transparent text-gray-200 outline-none"
+                                />
+                            </div>
+                            <button
+                                onClick={() => loadProfile(input, true)}
+                                disabled={loading || !input.trim()}
+                                className="bg-red-600 hover:bg-red-700 disabled:bg-red-900/50 text-white px-8 flex items-center gap-2 font-bold transition-all"
+                            >
+                                VERIFY AGENT <Shield className="w-4 h-4" />
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Main Dashboard Tabs */}
+                    <div className="px-6 py-4 flex items-center justify-between border-b border-red-900/10 mb-4">
+                        <div className="flex gap-6">
+                            <button
+                                onClick={() => setActiveTab("listings")}
+                                className={`pb-2 text-sm font-bold transition-all ${activeTab === 'listings' ? 'text-red-500 border-b-2 border-red-500' : 'text-gray-500 hover:text-gray-300'}`}
+                            >
+                                <div className="flex items-center gap-2">
+                                    <Award className="w-4 h-4" /> LEADERBOARD
+                                </div>
+                            </button>
+                            <button
+                                onClick={() => setActiveTab("feed")}
+                                className={`pb-2 text-sm font-bold transition-all ${activeTab === 'feed' ? 'text-red-500 border-b-2 border-red-500' : 'text-gray-500 hover:text-gray-300'}`}
+                            >
+                                <div className="flex items-center gap-2">
+                                    <Activity className="w-4 h-4" /> LIVE FEED
+                                </div>
+                            </button>
+                        </div>
+                    </div>
+
+                    {activeTab === 'profile' && profileData ? (
+                        /* PROFILE VIEW */
+                        <div className="dashboard-container p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+                            {/* PROFILE HEADER */}
+                            <div className="col-span-1 md:col-span-2 bg-black/40 border border-red-900/20 rounded-md p-6 flex items-center justify-between">
+                                <div className="flex items-center gap-5">
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                    <img
+                                        src={profileData.avatar_url || "/logo.png"}
+                                        alt={profileData.display_name}
+                                        className="w-16 h-16 rounded-full border-2 border-red-500/50 object-cover"
+                                    />
+                                    <div>
+                                        <h2 className="text-2xl font-bold text-white uppercase tracking-wider">{profileData.display_name}</h2>
+                                        <div className="text-sm text-gray-500 font-mono mt-1">@{profileData.username}</div>
+                                    </div>
+                                </div>
+                                <button
+                                    onClick={() => handleReport(profileData.username)}
+                                    className="text-gray-500 hover:text-red-500 transition-colors flex items-center gap-2 text-xs font-bold border border-zinc-800 hover:border-red-900 bg-zinc-900/50 hover:bg-zinc-900 px-4 py-2 rounded-md"
+                                >
+                                    <Flag className="w-3 h-3" /> REPORT SUSPICIOUS
+                                </button>
+                            </div>
+
+                            {/* TRUST SCORE SECTION */}
+                            <div className="dashboard-card bg-black/30 border border-red-900/20 rounded-md p-5 relative overflow-hidden">
+                                <div className="text-red-500 text-sm font-mono mb-2">01 — TRUST SCORE</div>
+
+                                <div className="flex items-center justify-center mt-6">
+                                    <div className="relative">
+                                        {/* Outer circle */}
+                                        <div className="w-40 h-40 rounded-full border-4 border-blue-900/30 flex items-center justify-center">
+                                            {/* Inner circle with score */}
+                                            <div className="w-32 h-32 rounded-full bg-gradient-to-b from-red-900/50 to-red-800/20 flex flex-col items-center justify-center">
+                                                <div className="text-xs text-gray-400 uppercase">FINAL SCORE</div>
+                                                <div className="text-5xl font-bold text-white mt-1">
+                                                    {profileData ? Math.round(profileData.final_score) : "—"}
+                                                </div>
+                                                <div className="text-xs text-gray-500">/100</div>
+                                            </div>
+                                        </div>
+
+                                        {/* Pulse effect */}
+                                        <div className="absolute inset-0 w-40 h-40 rounded-full border border-red-500/30 animate-ping-slow"></div>
+                                    </div>
+                                </div>
+
+                                {/* AI Intelligence Verdict */}
+                                {profileData.ai_verdict && (
+                                    <div className="mt-8 p-4 bg-red-900/10 border border-red-500/20 rounded-md relative group">
+                                        <div className="absolute -top-2 -left-2 bg-red-600 text-[10px] font-bold px-2 py-0.5 rounded flex items-center gap-1">
+                                            <Zap className="w-2.5 h-2.5" /> AI INTELLIGENCE VERDICT
+                                        </div>
+                                        <p className="text-xs text-gray-300 italic leading-relaxed">
+                                            "{profileData.ai_verdict}"
+                                        </p>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* PILLAR 1: KARMA (25%) */}
+                            <div className="dashboard-card bg-black/30 border border-red-900/20 rounded-md p-5 relative overflow-hidden">
+                                <div className="text-red-500 text-sm font-mono mb-2">PILLAR 01 — KARMA</div>
+                                <div className="text-3xl font-bold text-white mb-1">
+                                    {profileData?.breakdown.karma.raw ?? 0}
+                                </div>
+                                <div className="text-xs text-gray-400 mb-6">MOLTBOOK KARMA UNITS</div>
+
+                                <div className="metric-row">
+                                    <div className="flex justify-between items-center mb-1">
+                                        <span className="text-sm text-gray-400">Contribution to Total</span>
+                                        <span className="text-sm text-gray-300">
+                                            {profileData?.breakdown.karma.normalized.toFixed(1)}/25
+                                        </span>
+                                    </div>
+                                    <div className="h-1.5 bg-red-900/20 rounded-full overflow-hidden">
+                                        <div className="h-full bg-red-600" style={{ width: `${(profileData?.breakdown.karma.normalized || 0) * 4}%` }}></div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* PILLAR 2: REPUTATION (30%) */}
+                            <div className="dashboard-card bg-black/30 border border-red-900/20 rounded-md p-5">
+                                <div className="text-red-500 text-sm font-mono mb-3">PILLAR 02 — REPUTATION</div>
+                                <div className="space-y-4">
+                                    <div className="metric-row">
+                                        <div className="flex justify-between items-center mb-1">
+                                            <span className="text-sm text-gray-400">Post Quality</span>
+                                            <span className="text-sm text-gray-300">
+                                                {Math.round(profileData?.breakdown.reputation.details.post_quality || 0)}%
+                                            </span>
+                                        </div>
+                                        <div className="h-1.5 bg-red-900/20 rounded-full overflow-hidden">
+                                            <div className="h-full bg-red-600" style={{ width: `${profileData?.breakdown.reputation.details.post_quality || 0}%` }}></div>
+                                        </div>
+                                    </div>
+                                    <div className="metric-row">
+                                        <div className="flex justify-between items-center mb-1">
+                                            <span className="text-sm text-gray-400">Consistency (30d)</span>
+                                            <span className="text-sm text-gray-300">
+                                                {Math.round(profileData?.breakdown.reputation.details.consistency || 0)}%
+                                            </span>
+                                        </div>
+                                        <div className="h-1.5 bg-red-900/20 rounded-full overflow-hidden">
+                                            <div className="h-full bg-red-600" style={{ width: `${profileData?.breakdown.reputation.details.consistency || 0}%` }}></div>
+                                        </div>
+                                    </div>
+                                    <div className="metric-row">
+                                        <div className="flex justify-between items-center mb-1">
+                                            <span className="text-sm text-gray-400">Longevity</span>
+                                            <span className="text-sm text-gray-300">
+                                                {Math.round(profileData?.breakdown.reputation.details.longevity || 0)}%
+                                            </span>
+                                        </div>
+                                        <div className="h-1.5 bg-red-900/20 rounded-full overflow-hidden">
+                                            <div className="h-full bg-red-600" style={{ width: `${profileData?.breakdown.reputation.details.longevity || 0}%` }}></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* PILLAR 3: WEB PRESENCE (25%) */}
+                            <div className="dashboard-card bg-black/30 border border-red-900/20 rounded-md p-5">
+                                <div className="text-red-500 text-sm font-mono mb-3">PILLAR 03 — WEB PRESENCE</div>
+                                <div className="grid grid-cols-2 gap-3 mt-4">
+                                    <div className={`p-2 border rounded-md text-xs flex items-center justify-between ${profileData?.breakdown.web_presence.details.has_website ? 'border-green-900/30 bg-green-900/10 text-green-400' : 'border-red-900/30 bg-red-900/10 text-red-400'}`}>
+                                        <span>Website</span>
+                                        {profileData?.breakdown.web_presence.details.has_website ? <Shield className="w-3 h-3" /> : <AlertTriangle className="w-3 h-3" />}
+                                    </div>
+                                    <div className={`p-2 border rounded-md text-xs flex items-center justify-between ${profileData?.breakdown.web_presence.details.has_ssl ? 'border-green-900/30 bg-green-900/10 text-green-400' : 'border-red-900/30 bg-red-900/10 text-red-400'}`}>
+                                        <span>SSL</span>
+                                        {profileData?.breakdown.web_presence.details.has_ssl ? <Shield className="w-3 h-3" /> : <AlertTriangle className="w-3 h-3" />}
+                                    </div>
+                                    <div className={`p-2 border rounded-md text-xs flex items-center justify-between ${profileData?.breakdown.web_presence.details.has_documentation ? 'border-green-900/30 bg-green-900/10 text-green-400' : 'border-red-900/30 bg-red-900/10 text-red-400'}`}>
+                                        <span>Docs</span>
+                                        {profileData?.breakdown.web_presence.details.has_documentation ? <Shield className="w-3 h-3" /> : <AlertTriangle className="w-3 h-3" />}
+                                    </div>
+                                    <div className={`p-2 border rounded-md text-xs flex items-center justify-between ${profileData?.breakdown.web_presence.details.has_socials ? 'border-green-900/30 bg-green-900/10 text-green-400' : 'border-red-900/30 bg-red-900/10 text-red-400'}`}>
+                                        <span>Socials</span>
+                                        {profileData?.breakdown.web_presence.details.has_socials ? <Shield className="w-3 h-3" /> : <AlertTriangle className="w-3 h-3" />}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* PILLAR 4: CRYPTO INFLUENCE (20%) */}
+                            <div className="dashboard-card bg-black/30 border border-red-900/20 rounded-md p-5">
+                                <div className="text-red-500 text-sm font-mono mb-3">PILLAR 04 — CRYPTO INFLUENCE</div>
+                                <div className="space-y-4">
+                                    <div className="metric-row">
+                                        <div className="flex justify-between items-center mb-1">
+                                            <span className="text-sm text-gray-400">Token Score</span>
+                                            <span className="text-sm text-gray-300">
+                                                {Math.round(profileData?.breakdown.crypto_influence.details.token_score || 0)}%
+                                            </span>
+                                        </div>
+                                        <div className="h-1.5 bg-red-900/20 rounded-full overflow-hidden">
+                                            <div className="h-full bg-red-600" style={{ width: `${profileData?.breakdown.crypto_influence.details.token_score || 0}%` }}></div>
+                                        </div>
+                                    </div>
+                                    <div className="metric-row">
+                                        <div className="flex justify-between items-center mb-1">
+                                            <span className="text-sm text-gray-400">Holder Score</span>
+                                            <span className="text-sm text-gray-300">
+                                                {Math.round(profileData?.breakdown.crypto_influence.details.holder_score || 0)}%
+                                            </span>
+                                        </div>
+                                        <div className="h-1.5 bg-red-900/20 rounded-full overflow-hidden">
+                                            <div className="h-full bg-red-600" style={{ width: `${profileData?.breakdown.crypto_influence.details.holder_score || 0}%` }}></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    ) : activeTab === 'feed' ? (
+                        /* FEED VIEW */
+                        <div className="px-6 py-4">
+                            <div className="space-y-4 max-w-4xl">
+                                {feed.length === 0 ? (
+                                    <div className="p-8 text-center text-gray-500 border border-dashed border-red-900/20 rounded-md">
+                                        No recent activity detected on the network.
+                                    </div>
+                                ) : (
+                                    feed.map((item, i) => (
+                                        <div key={i} className="flex gap-4 p-4 bg-red-900/5 border border-red-900/10 rounded-md items-center">
+                                            <div className="w-10 h-10 rounded-full bg-red-900/20 flex items-center justify-center">
+                                                {item.type === 'scan' ? <Shield className="text-red-500 w-5 h-5" /> :
+                                                    item.type === 'vote' ? <Vote className="text-blue-500 w-5 h-5" /> :
+                                                        <Zap className="text-yellow-500 w-5 h-5 animate-pulse" />}
+                                            </div>
+                                            <div className="flex-1">
+                                                <div className="text-sm font-bold text-white uppercase tracking-wider">
+                                                    {item.type === 'scan' ? 'Agent Scanned' : item.type === 'vote' ? 'Community Vote' : 'Oracle Message'}
+                                                </div>
+                                                <div className="text-gray-400 text-sm">
+                                                    {item.type === 'scan' ? (
+                                                        <>Verification triggered for <span className="text-red-400">@{item.symbol}</span></>
+                                                    ) : item.type === 'vote' ? (
+                                                        <>Community expressed <span className="text-blue-400">{item.value === 'UP' ? 'TRUST' : 'DISTRUST'}</span> for <span className="text-white">@{item.symbol}</span></>
+                                                    ) : (
+                                                        <span className="text-red-300 italic">"{item.value}"</span>
+                                                    )}
+
+                                                    <div className="text-[10px] text-gray-600 font-mono mt-1">
+                                                        {new Date(item.timestamp).toLocaleString()}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        </div>
+                    ) : activeTab === 'comparison' ? (
+                        /* COMPARISON VIEW */
+                        <div className="px-6 py-4">
+                            {comparisonLoading ? (
+                                <div className="h-64 flex flex-col items-center justify-center gap-4">
+                                    <div className="loading-dots"><span /><span /><span /></div>
+                                    <p className="text-red-500 font-mono text-sm">ORACLE ANALYZING BINARY TARGETS...</p>
+                                </div>
+                            ) : comparisonResult ? (
+                                <div className="max-w-6xl mx-auto space-y-8 pb-20">
+                                    {/* AI Comparison Verdict */}
+                                    <div className="bg-red-900/10 border-l-4 border-red-600 p-6 rounded-r-lg">
+                                        <div className="flex items-center gap-2 mb-2">
+                                            <Zap className="text-red-500 w-5 h-5 animate-pulse" />
+                                            <span className="text-xs font-bold text-red-500 uppercase tracking-widest">Oracle Binary Comparison</span>
+                                        </div>
+                                        <p className="text-lg text-white font-medium italic leading-relaxed">
+                                            "{comparisonResult.comparison_verdict}"
+                                        </p>
+                                    </div>
+
+                                    {/* Side-by-Side Scoring */}
+                                    <div className="grid grid-cols-2 gap-12">
+                                        {[comparisonResult.agent_a, comparisonResult.agent_b].map((agent, idx) => (
+                                            <div key={idx} className="space-y-6">
+                                                <div className="flex items-center gap-4">
+                                                    <div className="w-16 h-16 rounded-full bg-gradient-to-br from-red-600 to-red-800 flex items-center justify-center font-bold text-2xl text-white">
+                                                        {Math.round(agent.final_score)}
+                                                    </div>
+                                                    <div>
+                                                        <h3 className="text-xl font-bold text-white uppercase tracking-wider">{agent.display_name}</h3>
+                                                        <p className="text-red-500 font-mono">@{agent.username}</p>
+                                                    </div>
+                                                </div>
+
+                                                <div className="space-y-4">
+                                                    {Object.entries(agent.breakdown).map(([pillar, data]: [string, any]) => (
+                                                        <div key={pillar} className="metric-row">
+                                                            <div className="flex justify-between items-center mb-1">
+                                                                <span className="text-xs text-gray-400 uppercase">{pillar.replace('_', ' ')}</span>
+                                                                <span className="text-xs text-gray-300 font-mono">{Math.round(data.total || data.normalized || 0)}</span>
+                                                            </div>
+                                                            <div className="h-1 bg-gray-900 rounded-full">
+                                                                <div
+                                                                    className="h-full bg-red-600 transition-all duration-1000"
+                                                                    style={{ width: `${(data.total || data.normalized || 0) * (pillar === 'reputation' ? 3.33 : pillar === 'karma' ? 4 : pillar === 'web_presence' ? 4 : 5)}%` }}
+                                                                />
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <button
+                                        onClick={() => setActiveTab('listings')}
+                                        className="mt-8 px-6 py-2 bg-black border border-red-900/40 text-gray-400 hover:text-white hover:border-red-600 transition-all flex items-center gap-2 text-xs font-bold uppercase tracking-widest"
+                                    >
+                                        <ChevronRight className="w-4 h-4 rotate-180" /> Back to Rankings
+                                    </button>
+                                </div>
+                            ) : null}
+                        </div>
+                    ) : (
+                        /* LEADERBOARD VIEW with Filters */
+                        <div className="px-6 pb-8">
+                            {/* Filter Bar */}
+                            <div className="flex flex-wrap items-center gap-4 mb-6 bg-red-900/5 p-3 rounded-md border border-red-900/10">
+                                <div className="text-xs font-bold text-red-500 flex items-center gap-2 mr-2">
+                                    <Filter className="w-3 h-3" /> FILTERS
+                                </div>
+                                <button
+                                    onClick={() => setFilterVerified(!filterVerified)}
+                                    className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${filterVerified ? 'bg-red-600 text-white' : 'bg-black/40 text-gray-400 border border-red-900/20'}`}
+                                >
+                                    VERIFIED ONLY
+                                </button>
+                                <button
+                                    onClick={() => setFilterWebsite(!filterWebsite)}
+                                    className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${filterWebsite ? 'bg-red-600 text-white' : 'bg-black/40 text-gray-400 border border-red-900/20'}`}
+                                >
+                                    HAS WEBSITE
+                                </button>
+                                <div className="flex items-center gap-2 ml-auto">
+                                    <span className="text-[10px] text-gray-500 font-bold">SORT BY:</span>
+                                    <select
+                                        value={sortBy}
+                                        onChange={(e) => setSortBy(e.target.value)}
+                                        className="bg-black/40 border border-red-900/20 text-gray-300 text-xs rounded px-2 py-1 outline-none"
+                                    >
+                                        <option value="score">TRUST SCORE</option>
+                                        <option value="karma">KARMA</option>
+                                        <option value="recent">RECENT</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div className="ethos-section bg-black/30 border border-red-900/20 rounded-md overflow-hidden">
+                                <div className="bg-gradient-to-r from-red-900/30 to-black/30 p-4 border-b border-red-900/20">
+                                    <div className="text-white font-semibold">LIVE AGENT RANKINGS</div>
+                                </div>
+
+                                <div className="ethos-table">
+                                    <div className="ethos-table-header grid grid-cols-7 p-3 bg-black/50 text-gray-400 text-sm">
+                                        <div>Rank</div>
+                                        <div className="col-span-2">Agent</div>
+                                        <div>Karma</div>
+                                        <div>Score</div>
+                                        <div>Status</div>
+                                        <div className="text-right">Actions</div>
+                                    </div>
+
+                                    {listings.map((agent, index) => (
+                                        <div
+                                            key={agent.username}
+                                            className="ethos-table-row grid grid-cols-7 p-3 border-b border-red-900/10 hover:bg-red-900/5 cursor-pointer items-center"
+                                            onClick={() => loadProfile(agent.username)}
+                                        >
+                                            <div className="flex items-center text-gray-500">#{index + 1}</div>
+                                            <div className="col-span-2 flex items-center gap-3">
+                                                {agent.avatar_url ? (
+                                                    <img src={agent.avatar_url} className="w-8 h-8 rounded-full border border-red-500/20" alt="" />
+                                                ) : (
+                                                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-red-600 to-red-800"></div>
+                                                )}
+                                                <div>
+                                                    <div className="text-white text-sm font-medium">{agent.display_name}</div>
+                                                    <div className="text-gray-500 text-xs font-mono">@{agent.username}</div>
+                                                </div>
+                                            </div>
+                                            <div className="flex items-center text-red-400 font-mono text-sm">
+                                                {agent.karma}
+                                            </div>
+                                            <div className="flex items-center">
+                                                <div className="bg-gradient-to-r from-red-600 to-red-800 text-white rounded px-2 py-0.5 text-xs font-bold">
+                                                    {Math.round(agent.final_score)}
+                                                </div>
+                                            </div>
+                                            <div className="flex items-center">
+                                                <span className={`text-[10px] px-2 py-0.5 rounded border uppercase font-bold ${agent.verification_status === 'verified' ? 'bg-green-900/10 border-green-500/30 text-green-400' :
+                                                    agent.verification_status === 'rejected' ? 'bg-red-900/10 border-red-500/30 text-red-400' :
+                                                        'bg-yellow-900/10 border-yellow-500/30 text-yellow-400'
+                                                    }`}>
+                                                    {agent.verification_status}
+                                                </span>
+                                            </div>
+                                            <div className="flex items-center justify-end gap-2">
+                                                <button
+                                                    className={`p-1.5 rounded border transition-all ${comparisonIds.includes(agent.username) ? 'bg-red-600 border-red-500 text-white' : 'bg-red-900/20 border-red-900/30 text-red-500 hover:bg-red-500 hover:text-white'}`}
+                                                    onClick={(e) => { e.stopPropagation(); toggleComparison(agent.username); }}
+                                                    title="Compare Agent"
+                                                >
+                                                    <BarChart3 className="w-3.5 h-3.5" />
+                                                </button>
+                                                <button
+                                                    className="p-1.5 bg-red-900/20 rounded border border-red-900/30 text-red-500 hover:bg-red-500 hover:text-white transition-all"
+                                                    onClick={(e) => handleVote(e, agent.username, 'UP')}
+                                                >
+                                                    <ArrowUp className="w-3.5 h-3.5" />
+                                                </button>
+                                                <button
+                                                    className="p-1.5 bg-gray-900/20 rounded border border-gray-900/30 text-gray-500 hover:bg-gray-700 hover:text-white transition-all"
+                                                    onClick={(e) => handleVote(e, agent.username, 'DOWN')}
+                                                >
+                                                    <ArrowDown className="w-3.5 h-3.5" />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Comparison Drawer */}
+                    {comparisonIds.length > 0 && activeTab !== 'comparison' && (
+                        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-black/80 backdrop-blur-md border border-red-500/30 rounded-full px-6 py-3 flex items-center gap-6 z-50 shadow-[0_0_20px_rgba(220,38,38,0.2)]">
+                            <div className="flex items-center gap-2">
+                                <BarChart3 className="text-red-500 w-4 h-4" />
+                                <span className="text-xs font-bold text-white uppercase tracking-widest">Comparison Mode</span>
+                            </div>
+
+                            <div className="flex gap-2">
+                                {comparisonIds.map(id => (
+                                    <div key={id} className="bg-red-900/20 border border-red-900/40 rounded-full px-3 py-1 flex items-center gap-2">
+                                        <span className="text-[10px] text-red-500 font-bold">@{id}</span>
+                                        <button onClick={() => toggleComparison(id)} className="text-gray-500 hover:text-white transition-colors">×</button>
+                                    </div>
+                                ))}
+                            </div>
+
+                            <button
+                                onClick={launchComparison}
+                                disabled={comparisonIds.length < 2 || comparisonLoading}
+                                className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-tighter transition-all ${comparisonIds.length === 2 ? 'bg-red-600 text-white hover:bg-red-500 animate-pulse active:scale-95' : 'bg-gray-900 text-gray-600 cursor-not-allowed'}`}
+                            >
+                                {comparisonLoading ? 'ANALYZING...' : 'Launch VS Engine'}
+                            </button>
+                        </div>
+                    )}
+
+                    {loading && (
+                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 backdrop-blur-sm">
+                            <div className="bg-black border border-red-500/20 p-6 rounded-xl flex flex-col items-center gap-4">
+                                <div className="loading-dots"><span /><span /><span /></div>
+                                <p className="text-red-500 font-mono text-sm animate-pulse">SCANNING MOLTBOOK NETWORK...</p>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* Custom styles to be moved to CSS file */}
+            <style jsx global>{`
+                body {
+                    background-color: #000000;
+                    color: white;
+                    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                }
+                
+                .animate-ping-slow {
+                    animation: ping 3s cubic-bezier(0, 0, 0.2, 1) infinite;
+                }
+
+                @keyframes ping {
+                    75%, 100% {
+                        transform: scale(1.5);
+                        opacity: 0;
+                    }
+                }
+            `}</style>
+        </div>
+    );
+}

@@ -1,0 +1,61 @@
+# Secrets
+.env
+.env.local
+.env.*.local
+moltbook_credentials.json
+API.txt
+
+# Databases
+*.db
+*.db-journal
+
+# Binaries & Bundles
+node.zip
+portable_node/
+logo.jpg
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+.env/
+
+# Node
+node_modules/
+.next/
+out/
+build/
+dist/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Deployment & Utility Scripts (Root files that aren't core logic)
+NUCLEAR_LAUNCH.py
+FINAL_DEPLOY_DOMAIN.py
+configure_domain.py
+deploy_*.py
+check_*.py
+seed_*.py
+diagnose_*.py
+fix_*.py
+unify_vps.py
+vps_*.py
+read_vps_*.py
+force_*.py
+switch_to_dev.py
+emergency_*.py
+robust_verify.py
+manual_start_*.py
+patch_*.py
+explore_vps.py
+trace_vps.py
+
+# OS
+.DS_Store
+Thumbs.db
