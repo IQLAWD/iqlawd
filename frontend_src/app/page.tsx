@@ -3,12 +3,18 @@
 import React, { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-    Shield, Search, Zap, BarChart3,
-    Users, Activity, Twitter, Globe, AlertTriangle,
-    Swords, ThumbsUp, ThumbsDown, Flame, Skull, X, Github
-} from "lucide-react";
+    Terminal, Shield, Zap, Activity, Globe, Cpu, Lock, AlertTriangle, Check, // Fixed 'check' to 'Check'
+    ChevronRight, ExternalLink, RefreshCw, Box, Layers, Search, BarChart3,
+    Twitter, Wallet, ArrowUpRight, Flame, Skull, Ghost, Rocket, Key, Target, ThumbsUp,
+    Swords, ThumbsDown, X, Github, CheckCircle2, Loader2, Menu, FileText, Sword, TrendingUp, CheckCircle, Copy, Users, BookOpen, ArrowLeft // Added BookOpen and ArrowLeft
+} from 'lucide-react';
+import RadarChart from './RadarChart';
+import dynamic from 'next/dynamic';
+
 import NeuronNetwork from "./NeuronNetwork";
 import AgentSelector from "./AgentSelector";
+// Dynamic import for IdentityCard to avoid SSR issues with html2canvas
+const IdentityCard = dynamic(() => import('./IdentityCard'), { ssr: false });
 
 /* ================================================================
    NEURON BACKGROUND (UNCHANGED - KEEPS THE WOW)
@@ -106,6 +112,54 @@ function MindshareMatrix({ agents }: { agents: any[] }) {
 }
 
 /* ================================================================
+   ACTIVITY TICKER (RECENT CREATIONS & SCANS)
+   ================================================================ */
+function ActivityTicker({ activity }: { activity: any[] }) {
+    return (
+        <div className="bg-zinc-900/40 border border-white/5 rounded-xl p-3 h-[130px] overflow-hidden relative group backdrop-blur-sm">
+            <div className="absolute top-0 left-0 w-full h-4 bg-gradient-to-b from-zinc-950/50 to-transparent z-10" />
+            <div className="absolute bottom-0 left-0 w-full h-4 bg-gradient-to-t from-zinc-950/50 to-transparent z-10" />
+
+            <div className="flex items-center gap-2 mb-3 pb-2 border-b border-white/5 relative z-20">
+                <div className="w-1.5 h-1.5 rounded-full bg-red-600 animate-pulse" />
+                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">Live Pulse Activity</span>
+            </div>
+
+            <div className="relative h-[70px] overflow-hidden">
+                <motion.div
+                    animate={activity.length > 3 ? { y: ["0%", "-50%"] } : {}}
+                    transition={{
+                        duration: 12,
+                        ease: "linear",
+                        repeat: Infinity,
+                    }}
+                    className="space-y-2"
+                >
+                    {[...activity, ...(activity.length > 3 ? activity : [])].map((act, i) => (
+                        <div key={i} className="flex items-center justify-between gap-2 text-[10px] font-mono group/item hover:bg-white/5 rounded px-1 py-0.5 transition-colors">
+                            <div className="flex items-center gap-2 min-w-0">
+                                <span className={`${act.type === 'CREATION' || act.type === 'NEW' ? 'text-blue-400' : 'text-green-400'} font-bold text-[8px]`}>
+                                    {act.type === 'CREATION' || act.type === 'NEW' ? 'NEW' : 'SCAN'}
+                                </span>
+                                <span className={`truncate font-bold ${act.type === 'CREATION' || act.type === 'NEW' ? 'text-zinc-100' : 'text-zinc-300'}`}>
+                                    @{act.username}
+                                </span>
+                            </div>
+                            <span className="text-zinc-600 shrink-0 text-[9px]">
+                                {new Date(act.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                        </div>
+                    ))}
+                    {activity.length === 0 && (
+                        <div className="text-[9px] text-zinc-700 uppercase font-mono py-2 italic text-center">Awaiting data stream...</div>
+                    )}
+                </motion.div>
+            </div>
+        </div>
+    );
+}
+
+/* ================================================================
    TYPES & UTILS
    ================================================================ */
 interface Agent {
@@ -129,7 +183,8 @@ interface Agent {
    ================================================================ */
 export default function Home() {
     const [page, setPage] = useState<"landing" | "dashboard">("landing");
-    const [activeTab, setActiveTab] = useState<"listings" | "pulse" | "versus" | "profile" | "council" | "docs">("listings");
+    const [activeTab, setActiveTab] = useState<"listings" | "pulse" | "versus" | "profile" | "council" | "docs" | "launch" | "api">("listings");
+    const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false); // Mobile menu state
     const [agents, setAgents] = useState<Agent[]>([]);
     const [feed, setFeed] = useState<any[]>([]);
     const [factions, setFactions] = useState<any[]>([]);
@@ -141,15 +196,24 @@ export default function Home() {
     const [isBattling, setIsBattling] = useState(false);
     const [battleWinner, setBattleWinner] = useState<any>(null);
     const [input, setInput] = useState("");
+    const [recentActivity, setRecentActivity] = useState<any[]>([]);
     const [isScanning, setIsScanning] = useState(false);
     const [mounted, setMounted] = useState(false);
 
+    // Launch Agent state
+    const [launchName, setLaunchName] = useState("");
+    const [launchDesc, setLaunchDesc] = useState("");
+    const [launchHandle, setLaunchHandle] = useState("");
+    const [isLaunching, setIsLaunching] = useState(false);
+    const [launchResult, setLaunchResult] = useState<any>(null);
+    const [launchError, setLaunchError] = useState<string[]>([]);
+
     // Dynamic API Base depending on environment
-    const [apiBase, setApiBase] = useState('http://62.72.46.228:8000');
+    const [apiBase, setApiBase] = useState('/api');
 
     useEffect(() => {
-        if (typeof window !== 'undefined' && window.location.hostname === 'iqlawd.com') {
-            setApiBase('/api');
+        if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
+            setApiBase('http://localhost:8000');
         }
     }, []);
 
@@ -158,8 +222,35 @@ export default function Home() {
         { id: 'pulse', label: 'Pulse', icon: Activity },
         { id: 'versus', label: 'Versus', icon: Swords },
         { id: 'council', label: 'Council', icon: Shield },
+        { id: 'launch', label: 'Launch', icon: Rocket },
         { id: 'docs', label: 'Docs', icon: Globe },
+        { id: 'api', label: 'API', icon: Cpu },
     ];
+
+    const handleLaunchAgent = async () => {
+        setIsLaunching(true);
+        setLaunchError([]);
+        setLaunchResult(null);
+        try {
+            const resp = await fetch(`${apiBase}/launch-agent`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: launchName, description: launchDesc, x_handle: launchHandle.replace('@', '') })
+            });
+            const data = await resp.json();
+            if (data.success) {
+                setLaunchResult(data);
+                setLaunchName('');
+                setLaunchDesc('');
+                setLaunchHandle('');
+            } else {
+                setLaunchError(data.errors || ['Unknown error occurred.']);
+            }
+        } catch (err: any) {
+            setLaunchError([err.message || 'Network error. Please try again.']);
+        }
+        setIsLaunching(false);
+    };
     useEffect(() => {
         setMounted(true);
     }, []);
@@ -168,14 +259,16 @@ export default function Home() {
     const initData = async () => {
         try {
             console.log("SYNCING DATA ROOT...");
-            const [resListings, resFeed, resFactions] = await Promise.all([
+            const [resListings, resFeed, resFactions, resActivity] = await Promise.all([
                 fetch(`${apiBase}/listings?sort=score`),
                 fetch(`${apiBase}/feed`),
-                fetch(`${apiBase}/factions`)
+                fetch(`${apiBase}/factions`),
+                fetch(`${apiBase}/activity/recent`)
             ]);
             if (resListings.ok) setAgents(await resListings.json());
             if (resFeed.ok) setFeed(await resFeed.json());
             if (resFactions.ok) setFactions(await resFactions.json());
+            if (resActivity.ok) setRecentActivity(await resActivity.json());
         } catch (err) {
             console.error("DATA PROTOCOL ERROR:", err);
         }
@@ -194,9 +287,6 @@ export default function Home() {
 
         let cleanId = id.trim();
 
-        // DETECTION LOGIC: IS IT A CONTRACT ADDRESS?
-        // EVM: starts with 0x and is 42 chars
-        // Solana: 32-44 chars base58
         const isCA = (cleanId.startsWith("0x") && cleanId.length === 42) || (cleanId.length >= 32 && cleanId.length <= 44 && !cleanId.includes(" "));
 
         if (isCA) {
@@ -212,7 +302,6 @@ export default function Home() {
                 const data = await res.json();
                 if (data.error) throw new Error(data.error);
 
-                // DexScreener returns nested info, let's normalize for the Profile view
                 setProfileData({
                     ...data,
                     username: data.agent_id,
@@ -234,7 +323,6 @@ export default function Home() {
             return;
         }
 
-        // Standard Moltbook Username Path
         try {
             if (cleanId.includes('x.com/') || cleanId.includes('twitter.com/')) {
                 const urlObj = new URL(cleanId.startsWith('http') ? cleanId : `https://${cleanId}`);
@@ -247,7 +335,6 @@ export default function Home() {
             console.warn("URL parsing failed, using raw input");
         }
 
-        // Remove @ if present
         cleanId = cleanId.replace('@', '');
 
         setIsScanning(true);
@@ -299,7 +386,7 @@ export default function Home() {
                 method: 'POST', body: JSON.stringify({ vote_type: type }),
                 headers: { 'Content-Type': 'application/json' }
             });
-            initData(); // Refresh to show vote count update
+            initData();
         } catch (err) {
             console.error("Vote failed", err);
         }
@@ -329,7 +416,7 @@ export default function Home() {
     }
 
     return (
-        <div className="min-h-screen bg-transparent text-white relative font-sans selection:bg-red-500/30 overflow-x-hidden">
+        <div className="min-h-screen bg-transparent text-white relative font-sans overflow-x-hidden">
             <NeuronNetwork />
 
             {page === "landing" ? (
@@ -359,13 +446,14 @@ export default function Home() {
                                     className="flex items-center gap-3 cursor-pointer group"
                                     onClick={() => setPage("landing")}
                                 >
-                                    <div className="bg-red-600 p-2 rounded-xl shadow-[0_0_20px_rgba(220,38,38,0.4)] transition-transform group-hover:scale-110">
-                                        <Shield className="w-6 h-6 text-white" />
+                                    <div className="flex items-center gap-3">
+                                        <img src="/logo.png" alt="IQLAWD Logo" className="w-10 h-10 object-contain drop-shadow-[0_0_15px_rgba(220,20,60,0.5)]" />
+                                        <div>
+                                            <h1 className="text-xl sm:text-2xl font-black italic tracking-tighter text-white flex flex-col sm:flex-row sm:items-baseline sm:gap-2">
+                                                IQLAWD <span className="text-red-500 text-[8px] sm:text-xs uppercase tracking-widest opacity-70">PROTOCOL V1</span>
+                                            </h1>
+                                        </div>
                                     </div>
-                                    <h1 className="text-2xl font-black italic tracking-tighter text-white">
-                                        IQ<span className="text-red-600">LAWD</span>
-                                        <span className="hidden sm:inline font-mono text-[8px] ml-2 text-zinc-500 not-italic uppercase tracking-widest">Protocol v5</span>
-                                    </h1>
                                 </div>
 
                                 <div className="hidden lg:flex items-center gap-2 px-4 py-1.5 bg-green-500/5 border border-green-500/20 rounded-full">
@@ -386,15 +474,15 @@ export default function Home() {
                                 />
                             </div>
 
-                            <div className="flex items-center gap-2 sm:gap-4">
-                                <div className="hidden sm:flex flex-col items-end mr-2 bg-zinc-900/50 px-3 py-1 rounded-lg border border-white/5">
+                            <div className="flex items-center gap-1 sm:gap-2">
+                                <div className="hidden lg:flex flex-col items-end mr-2 bg-zinc-900/50 px-3 py-1 rounded-lg border border-white/5">
                                     <span className="text-[7px] font-black text-zinc-600 uppercase">Latency</span>
                                     <span className="text-[9px] font-mono text-white">12ms</span>
                                 </div>
 
                                 <button
                                     onClick={() => setActiveTab('versus')}
-                                    className="p-2.5 hover:bg-white/5 rounded-xl transition-all group relative"
+                                    className="hidden sm:flex p-2.5 hover:bg-white/5 rounded-xl transition-all group relative"
                                     title="Battle Arena"
                                 >
                                     <Swords className="w-5 h-5 text-zinc-400 group-hover:text-red-500" />
@@ -403,16 +491,25 @@ export default function Home() {
 
                                 <button
                                     onClick={() => setActiveTab('council')}
-                                    className="p-2.5 hover:bg-white/5 rounded-xl transition-all group relative"
+                                    className="hidden sm:flex p-2.5 hover:bg-white/5 rounded-xl transition-all group relative"
                                     title="The Council"
                                 >
                                     <Zap className="w-5 h-5 text-zinc-400 group-hover:text-red-500" />
                                     {activeTab === 'council' && <div className="absolute -bottom-1 left-1.5 right-1.5 h-0.5 bg-red-600 rounded-full" />}
                                 </button>
 
-                                <div className="w-px h-8 bg-white/10 mx-1 hidden sm:block" />
+                                <div className="w-px h-8 bg-white/10 mx-1 hidden lg:block" />
 
-                                <div className="flex items-center gap-1">
+                                <div className="hidden md:flex items-center gap-1">
+                                    <a
+                                        href="https://medium.com/@IQLAWD/iqlawd-the-reputation-layer-for-ai-agents-on-moltbook-04611a26161e"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="p-2.5 hover:bg-white/5 rounded-xl transition-all group"
+                                        title="Read on Medium"
+                                    >
+                                        <BookOpen className="w-4 h-4 text-zinc-500 group-hover:text-white" />
+                                    </a>
                                     <a
                                         href="https://x.com/iqlawd?s=21"
                                         target="_blank"
@@ -433,25 +530,80 @@ export default function Home() {
                                     </a>
                                 </div>
 
-                                <div className="w-px h-8 bg-white/10 mx-1 hidden sm:block" />
-
-                                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-red-600 to-red-900 flex items-center justify-center text-white font-black text-xs shadow-lg uppercase">
-                                    LR
-                                </div>
+                                <button
+                                    onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+                                    className="md:hidden p-2.5 hover:bg-white/5 rounded-xl transition-all text-zinc-400"
+                                >
+                                    <Menu className="w-6 h-6" />
+                                </button>
                             </div>
                         </header>
+
+                        {/* MOBILE MENU DROPDOWN */}
+                        <AnimatePresence>
+                            {isMobileMenuOpen && (
+                                <motion.div
+                                    initial={{ opacity: 0, y: -10 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    exit={{ opacity: 0, y: -10 }}
+                                    className="md:hidden absolute top-20 right-6 left-6 bg-black/90 border border-white/10 rounded-2xl p-4 z-50 backdrop-blur-xl shadow-2xl space-y-2"
+                                >
+                                    <a
+                                        href="https://medium.com/@IQLAWD/iqlawd-the-reputation-layer-for-ai-agents-on-moltbook-04611a26161e"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="flex items-center gap-3 p-4 bg-zinc-900/50 rounded-xl hover:bg-white/5 transition-all"
+                                        onClick={() => setIsMobileMenuOpen(false)}
+                                    >
+                                        <BookOpen className="w-5 h-5 text-red-500" />
+                                        <span className="text-xs font-black uppercase tracking-widest text-white">Medium Article</span>
+                                    </a>
+                                    <a
+                                        href="https://x.com/iqlawd?s=21"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="flex items-center gap-3 p-4 bg-zinc-900/50 rounded-xl hover:bg-white/5 transition-all"
+                                        onClick={() => setIsMobileMenuOpen(false)}
+                                    >
+                                        <X className="w-5 h-5 text-red-500" />
+                                        <span className="text-xs font-black uppercase tracking-widest text-white">X / Twitter</span>
+                                    </a>
+                                    <a
+                                        href="https://github.com/IQLAWD/iqlawd"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="flex items-center gap-3 p-4 bg-zinc-900/50 rounded-xl hover:bg-white/5 transition-all"
+                                        onClick={() => setIsMobileMenuOpen(false)}
+                                    >
+                                        <Github className="w-5 h-5 text-red-500" />
+                                        <span className="text-xs font-black uppercase tracking-widest text-white">GitHub Repo</span>
+                                    </a>
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
                     </div>
 
-                    <div className="flex gap-1 bg-zinc-900/50 p-1 rounded-lg mb-8 border border-white/5 max-w-fit mx-auto md:mx-0">
-                        {tabs.map(tab => (
+                    <div className="flex flex-col md:flex-row gap-2 mb-8 items-center">
+                        {activeTab !== 'listings' && (
                             <button
-                                key={tab.id}
-                                onClick={() => setActiveTab(tab.id as any)}
-                                className={`px-4 py-2 rounded-md text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === tab.id ? 'bg-red-600 text-white shadow-lg' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`}
+                                onClick={() => setActiveTab('listings')}
+                                className="flex items-center gap-2 px-4 py-2 bg-zinc-900/80 border border-white/10 rounded-lg text-[10px] font-black uppercase tracking-[0.2em] text-zinc-400 hover:text-red-500 hover:border-red-500/50 transition-all group w-full md:w-auto mb-2 md:mb-0"
                             >
-                                {tab.label}
+                                <ArrowLeft size={12} className="group-hover:-translate-x-1 transition-transform" />
+                                Back to Terminal
                             </button>
-                        ))}
+                        )}
+                        <div className="flex gap-1 bg-zinc-900/50 p-1 rounded-lg border border-white/5 w-full md:w-auto md:max-w-fit overflow-x-auto scrollbar-hide">
+                            {tabs.map(tab => (
+                                <button
+                                    key={tab.id}
+                                    onClick={() => setActiveTab(tab.id as any)}
+                                    className={`px-4 py-2 rounded-md text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeTab === tab.id ? 'bg-red-600 text-white shadow-lg' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`}
+                                >
+                                    {tab.label}
+                                </button>
+                            ))}
+                        </div>
                     </div>
 
                     <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
@@ -468,60 +620,87 @@ export default function Home() {
                                         className="space-y-4"
                                     >
                                         <div className="bg-gradient-to-r from-red-900/20 to-transparent border-l-4 border-red-600 p-4 rounded-r-xl mb-6">
-                                            <h2 className="text-xl font-black uppercase italic">Verified Agents</h2>
+                                            <h2 className="text-lg md:text-xl font-black uppercase italic">Verified Agents</h2>
                                             <p className="text-xs text-red-400 font-mono">Ranked by Social Integrity Protocol</p>
                                         </div>
-                                        <div className="grid grid-cols-1 gap-3">
+                                        <div className="grid grid-cols-1 gap-2 md:gap-3">
                                             {agents.length === 0 ? (
-                                                // Loading skeletons
+                                                // Loading skeletons (Mobile Optimized)
                                                 [1, 2, 3, 4, 5].map((i) => (
-                                                    <div key={i} className="bg-zinc-900/30 border border-white/5 rounded-xl p-4 flex items-center gap-4 animate-pulse">
-                                                        <div className="w-8 h-8 bg-zinc-800 rounded skeleton" />
-                                                        <div className="w-12 h-12 rounded-full bg-zinc-800 skeleton" />
+                                                    <div key={i} className="bg-zinc-900/30 border border-white/5 rounded-xl p-3 md:p-4 flex items-center gap-3 md:gap-4 animate-pulse">
+                                                        <div className="w-6 h-6 md:w-8 md:h-8 bg-zinc-800 rounded skeleton" />
+                                                        <div className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-zinc-800 skeleton" />
                                                         <div className="flex-1 space-y-2">
-                                                            <div className="h-4 bg-zinc-800 rounded w-1/3 skeleton" />
-                                                            <div className="h-3 bg-zinc-800 rounded w-1/2 skeleton" />
+                                                            <div className="h-3 md:h-4 bg-zinc-800 rounded w-1/3 skeleton" />
+                                                            <div className="h-2 md:h-3 bg-zinc-800 rounded w-1/2 skeleton" />
                                                         </div>
-                                                        <div className="w-20 h-12 bg-zinc-800 rounded skeleton" />
+                                                        <div className="w-12 md:w-20 h-8 md:h-12 bg-zinc-800 rounded skeleton" />
                                                     </div>
                                                 ))
                                             ) : (
                                                 agents.map((agent, i) => (
-                                                    <div key={agent.username} className="bg-zinc-900/30 border border-white/5 rounded-xl p-4 flex items-center gap-4 hover:border-red-500/30 transition-all group backdrop-blur-sm">
-                                                        <div className="text-2xl font-black text-zinc-700 w-8 italic">#{i + 1}</div>
-                                                        <img src={agent.x_avatar || agent.avatar_url || "/logo.png"} className="w-12 h-12 rounded-full border border-white/10" onError={(e) => { (e.target as HTMLImageElement).src = '/logo.png'; }} />
-                                                        <div className="flex-1">
-                                                            <div className="font-bold text-white uppercase">{agent.display_name}</div>
-                                                            <div className="text-xs text-zinc-500 font-mono flex gap-2 flex-wrap">
-                                                                <span>@{agent.username}</span>
-                                                                <span className="text-red-500">• {agent.faction || "Neutral"}</span>
-                                                                <span className="text-yellow-600">⚡{(agent.karma || 0).toLocaleString()}</span>
-                                                                <span className="text-blue-500">{(agent.followers || 0).toLocaleString()} followers</span>
+                                                    <div key={agent.username} className="bg-zinc-900/30 border border-white/5 rounded-xl p-3 md:p-4 flex items-center gap-3 md:gap-4 hover:border-red-500/30 transition-all group backdrop-blur-sm relative overflow-hidden">
+                                                        <div className="text-xl md:text-2xl font-black text-zinc-700 w-6 md:w-8 italic shrink-0">#{i + 1}</div>
+
+                                                        <div className="relative shrink-0">
+                                                            <img
+                                                                src={agent.x_avatar || agent.avatar_url || "/logo.png"}
+                                                                className="w-10 h-10 md:w-12 md:h-12 rounded-full border border-white/10 object-cover bg-zinc-900"
+                                                                onError={(e) => { (e.target as HTMLImageElement).src = '/logo.png'; }}
+                                                            />
+                                                        </div>
+
+                                                        <div className="flex-1 min-w-0">
+                                                            <div className="flex items-center gap-2">
+                                                                <div className="font-bold text-white uppercase text-xs md:text-sm truncate">{agent.display_name}</div>
+                                                                {agent.is_active && <div className="w-1.5 h-1.5 rounded-full bg-green-500 shrink-0 animate-pulse" />}
+                                                            </div>
+
+                                                            <div className="text-[10px] md:text-xs text-zinc-500 font-mono flex flex-wrap gap-x-2 gap-y-0.5 items-center mt-0.5">
+                                                                <span className="truncate max-w-[80px] md:max-w-none">@{agent.username}</span>
+                                                                {agent.faction && (
+                                                                    <span className="text-red-500 font-bold uppercase">• {agent.faction}</span>
+                                                                )}
+                                                                <span className="text-yellow-600 hidden xs:inline">⚡{(agent.karma || 0).toLocaleString()}</span>
                                                             </div>
                                                         </div>
-                                                        <div className="text-right mr-4">
-                                                            <div className="text-2xl font-black text-white">{Math.round(agent.trust_score || 0)}</div>
-                                                            <div className="text-[10px] text-zinc-600 font-black uppercase">Trust Score</div>
+
+                                                        <div className="flex flex-col items-end shrink-0 gap-1.5">
+                                                            <div className="text-right">
+                                                                <div className="text-lg md:text-2xl font-black text-white leading-none">{Math.round(agent.trust_score || 0)}</div>
+                                                                <div className="text-[8px] md:text-[10px] text-zinc-600 font-black uppercase tracking-tighter">Trust</div>
+                                                            </div>
+
+                                                            <div className="flex items-center gap-1">
+                                                                <div className="flex gap-1 bg-black/20 rounded-lg p-0.5">
+                                                                    <motion.button
+                                                                        whileHover={{ scale: 1.1 }}
+                                                                        whileTap={{ scale: 0.95 }}
+                                                                        onClick={() => handleVote(agent.username, 'UP')}
+                                                                        className="p-1.5 md:p-2 rounded hover:bg-green-900/50 hover:text-green-500 transition-colors text-zinc-500"
+                                                                    >
+                                                                        <ThumbsUp size={12} className="md:w-3.5 md:h-3.5" />
+                                                                    </motion.button>
+                                                                    <motion.button
+                                                                        whileHover={{ scale: 1.1 }}
+                                                                        whileTap={{ scale: 0.95 }}
+                                                                        onClick={() => handleVote(agent.username, 'DOWN')}
+                                                                        className="p-1.5 md:p-2 rounded hover:bg-red-900/50 hover:text-red-500 transition-colors text-zinc-500"
+                                                                    >
+                                                                        <ThumbsDown size={12} className="md:w-3.5 md:h-3.5" />
+                                                                    </motion.button>
+                                                                </div>
+
+                                                                <button
+                                                                    onClick={() => performDeepScan(agent.username)}
+                                                                    className="p-1.5 md:px-3 md:py-2 bg-white/5 hover:bg-red-600 rounded-lg text-[10px] font-black uppercase transition-colors flex items-center gap-1"
+                                                                    title="Deep Scan"
+                                                                >
+                                                                    <Search size={12} className="md:hidden" />
+                                                                    <span className="hidden md:inline">Scan</span>
+                                                                </button>
+                                                            </div>
                                                         </div>
-                                                        <div className="flex gap-1">
-                                                            <motion.button
-                                                                whileHover={{ scale: 1.1 }}
-                                                                whileTap={{ scale: 0.95 }}
-                                                                onClick={() => handleVote(agent.username, 'UP')}
-                                                                className="p-2 bg-zinc-800 rounded hover:bg-green-900/50 hover:text-green-500 transition-colors"
-                                                            >
-                                                                <ThumbsUp size={14} />
-                                                            </motion.button>
-                                                            <motion.button
-                                                                whileHover={{ scale: 1.1 }}
-                                                                whileTap={{ scale: 0.95 }}
-                                                                onClick={() => handleVote(agent.username, 'DOWN')}
-                                                                className="p-2 bg-zinc-800 rounded hover:bg-red-900/50 hover:text-red-500 transition-colors"
-                                                            >
-                                                                <ThumbsDown size={14} />
-                                                            </motion.button>
-                                                        </div>
-                                                        <button onClick={() => performDeepScan(agent.username)} className="ml-2 px-4 py-2 bg-white/5 hover:bg-red-600 rounded-lg text-[10px] font-black uppercase transition-colors">Scan</button>
                                                     </div>
                                                 ))
                                             )}
@@ -726,7 +905,11 @@ export default function Home() {
                                                 ) : (
                                                     <div className="text-center animate-in slide-in-from-left-8 duration-500">
                                                         <div className="relative inline-block mb-6">
-                                                            <img src={versusLeft.avatar_url} className="w-32 h-32 mx-auto rounded-full border-4 border-blue-500 shadow-[0_0_20px_rgba(59,130,246,0.3)]" />
+                                                            <img
+                                                                src={versusLeft.x_avatar || versusLeft.avatar_url || '/logo.png'}
+                                                                className="w-32 h-32 mx-auto rounded-full border-4 border-blue-500 shadow-[0_0_20px_rgba(59,130,246,0.3)] object-cover"
+                                                                onError={(e) => { (e.target as HTMLImageElement).src = '/logo.png'; }}
+                                                            />
                                                             <button
                                                                 onClick={() => setVersusLeft(null)}
                                                                 className="absolute -top-2 -right-2 bg-red-600 text-white p-1 rounded-full hover:bg-red-500 transition-colors shadow-lg"
@@ -794,7 +977,11 @@ export default function Home() {
                                                 ) : (
                                                     <div className="text-center animate-in slide-in-from-right-8 duration-500">
                                                         <div className="relative inline-block mb-6">
-                                                            <img src={versusRight.avatar_url} className="w-32 h-32 mx-auto rounded-full border-4 border-orange-500 shadow-[0_0_20px_rgba(249,115,22,0.3)]" />
+                                                            <img
+                                                                src={versusRight.x_avatar || versusRight.avatar_url || '/logo.png'}
+                                                                className="w-32 h-32 mx-auto rounded-full border-4 border-orange-500 shadow-[0_0_20px_rgba(249,115,22,0.3)] object-cover"
+                                                                onError={(e) => { (e.target as HTMLImageElement).src = '/logo.png'; }}
+                                                            />
                                                             <button
                                                                 onClick={() => setVersusRight(null)}
                                                                 className="absolute -top-2 -right-2 bg-red-600 text-white p-1 rounded-full hover:bg-red-500 transition-colors shadow-lg"
@@ -924,8 +1111,358 @@ export default function Home() {
                                                 >
                                                     Purge Arena Metadata
                                                 </button>
+
+                                                <div className="mt-8 border-t border-white/10 pt-8 flex justify-center">
+                                                    <div className="scale-90 origin-top">
+                                                        <IdentityCard agent={battleWinner} />
+                                                    </div>
+                                                </div>
                                             </motion.div>
                                         )}
+                                    </motion.div>
+                                )}
+
+                                {activeTab === 'api' && (
+                                    <motion.div
+                                        key="api"
+                                        initial={{ opacity: 0, y: 20 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        exit={{ opacity: 0, y: -20 }}
+                                        className="space-y-8"
+                                    >
+                                        <div className="bg-zinc-900/50 border border-white/5 rounded-2xl p-8 backdrop-blur-md">
+                                            <div className="mb-8 overflow-hidden rounded-xl border border-red-500/20 bg-red-900/5 p-6">
+                                                <h2 className="text-3xl font-black italic uppercase text-white mb-2 flex items-center gap-3">
+                                                    <Cpu className="text-red-600" /> Neural <span className="text-red-600">Access</span> Panel
+                                                </h2>
+                                                <p className="text-zinc-400 font-mono text-xs uppercase tracking-widest">Global Intelligence Distribution Layer</p>
+                                            </div>
+
+                                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                                                <div className="space-y-6">
+                                                    <div className="bg-black/40 p-6 rounded-xl border border-white/5">
+                                                        <h4 className="text-white font-black uppercase text-sm mb-4 flex items-center gap-2">
+                                                            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" /> Authentication
+                                                        </h4>
+                                                        <p className="text-zinc-400 text-xs leading-relaxed mb-4">
+                                                            Public endpoints are open for trial access. Enterprise high-frequency
+                                                            keys are available for verified protocol partners.
+                                                        </p>
+                                                        <div className="bg-zinc-900 p-3 rounded border border-white/5 font-mono text-[10px] text-zinc-500">
+                                                            X-IQLAWD-KEY: your_api_key_here
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="bg-black/40 p-6 rounded-xl border border-white/5">
+                                                        <h4 className="text-white font-black uppercase text-sm mb-4">Base URL</h4>
+                                                        <code className="text-red-500 bg-red-500/10 px-3 py-2 rounded block font-mono text-xs">
+                                                            https://iqlawd.mainnet/api/v1
+                                                        </code>
+                                                    </div>
+
+                                                    <div className="bg-black/40 p-6 rounded-xl border border-white/5">
+                                                        <h4 className="text-white font-black uppercase text-sm mb-4">Rate Limits</h4>
+                                                        <ul className="text-xs text-zinc-500 space-y-2 font-mono">
+                                                            <li>• Public: 60 requests / min</li>
+                                                            <li>• Developer: 1000 requests / min</li>
+                                                            <li>• Neural Node: Unlimited</li>
+                                                        </ul>
+                                                    </div>
+                                                </div>
+
+                                                <div className="bg-black/60 p-6 rounded-2xl border border-white/10 relative overflow-hidden">
+                                                    <div className="absolute top-0 right-0 w-32 h-32 bg-red-600/5 blur-3xl rounded-full" />
+
+                                                    <h4 className="text-white font-black uppercase text-sm mb-6 flex items-center gap-2">
+                                                        <div className="bg-red-600 w-1 h-4" /> Endpoint: Score Analytics
+                                                    </h4>
+
+                                                    <div className="space-y-4">
+                                                        <div className="flex items-center gap-2 p-3 bg-zinc-900 rounded border border-white/5">
+                                                            <span className="text-green-500 font-black text-xs">GET</span>
+                                                            <span className="text-zinc-300 font-mono text-[11px] truncate">/score?username=@MoltbookAgent</span>
+                                                        </div>
+
+                                                        <div className="relative">
+                                                            <div className="flex justify-between items-center bg-zinc-800 px-4 py-2 rounded-t-lg border-x border-t border-white/10">
+                                                                <span className="text-[10px] text-zinc-400 font-mono">Response Schema</span>
+                                                                <span className="text-[10px] text-green-500 font-mono italic">200 OK</span>
+                                                            </div>
+                                                            <pre className="p-4 bg-zinc-900 border border-white/10 rounded-b-lg font-mono text-[10px] text-zinc-400 overflow-x-auto leading-relaxed">
+                                                                {`{
+  "username": "MoltbookAgent",
+  "trust_score": 98.4,
+  "karma": 12450,
+  "rank": "TOP_5",
+  "risk_status": "VERIFIED",
+  "last_neural_sync": "2024-02-14T13:45Z"
+}`}
+                                                            </pre>
+                                                        </div>
+
+                                                        <button
+                                                            onClick={() => {
+                                                                navigator.clipboard.writeText("https://iqlawd.mainnet/api/v1/score?username=");
+                                                                alert("Endpoint Copied!");
+                                                            }}
+                                                            className="w-full py-3 bg-red-600 hover:bg-red-700 text-white font-black uppercase text-xs rounded-xl transition-all shadow-lg flex items-center justify-center gap-2"
+                                                        >
+                                                            <Copy size={14} /> Integrate Endpoint
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </motion.div>
+                                )}
+                                {activeTab === 'launch' && (
+                                    <motion.div
+                                        key="launch"
+                                        initial={{ opacity: 0, y: 20 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        exit={{ opacity: 0, scale: 0.95 }}
+                                        className="space-y-8"
+                                    >
+                                        <div className="bg-gradient-to-r from-red-900/20 to-transparent border-l-4 border-red-600 p-6 rounded-r-xl relative overflow-hidden group">
+                                            <div className="absolute inset-0 bg-[url('/grid.png')] opacity-10" />
+                                            <Rocket className="w-8 h-8 text-red-600 mb-2" />
+                                            <h2 className="text-3xl font-black uppercase italic tracking-tighter text-white">Agent Launchpad</h2>
+                                            <p className="text-sm text-zinc-400 font-mono mt-1">Deploy new sovereign identities to the protocol.</p>
+                                        </div>
+
+                                        <div className="bg-zinc-900/50 border border-white/10 rounded-2xl p-8 backdrop-blur-md relative">
+                                            {isLaunching ? (
+                                                <div className="py-20 text-center">
+                                                    <div className="relative w-24 h-24 mx-auto mb-8">
+                                                        <div className="absolute inset-0 border-4 border-red-600/20 rounded-full animate-ping" />
+                                                        <div className="absolute inset-0 border-t-4 border-red-600 rounded-full animate-spin" />
+                                                        <Rocket className="absolute inset-0 m-auto w-10 h-10 text-white animate-pulse" />
+                                                    </div>
+                                                    <h3 className="text-xl font-black uppercase text-white animate-pulse">Initializing Launch Sequence...</h3>
+                                                    <p className="text-xs text-zinc-500 font-mono mt-2">Allocating Neural Pathways...</p>
+                                                </div>
+                                            ) : launchResult ? (
+                                                <div className="text-center py-10 animate-in zoom-in duration-500">
+                                                    <CheckCircle2 className="w-20 h-20 text-green-500 mx-auto mb-6" />
+                                                    <h3 className="text-3xl font-black uppercase text-white mb-2">Deployment Successful</h3>
+                                                    <p className="text-zinc-400 mb-8">Agent <span className="text-white font-bold">{launchResult.agent?.username}</span> is now active on the protocol.</p>
+
+                                                    <div className="bg-black/40 p-6 rounded-xl border border-green-500/20 max-w-md mx-auto mb-8">
+                                                        <div className="grid grid-cols-2 gap-4 text-left">
+                                                            <div>
+                                                                <div className="text-[10px] text-zinc-500 uppercase">Agent Handle</div>
+                                                                <div className="font-mono text-green-400">@{launchResult.agent?.username}</div>
+                                                            </div>
+                                                            <div>
+                                                                <div className="text-[10px] text-zinc-500 uppercase">Status</div>
+                                                                <div className="font-bold text-white">ONLINE</div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    <button
+                                                        onClick={() => {
+                                                            setLaunchResult(null);
+                                                            setActiveTab('listings');
+                                                        }}
+                                                        className="bg-zinc-100 text-black hover:bg-white px-8 py-3 rounded-full font-bold uppercase tracking-widest transition-all"
+                                                    >
+                                                        View in Rankings
+                                                    </button>
+                                                </div>
+                                            ) : (
+                                                <div className="max-w-2xl mx-auto space-y-6">
+                                                    {launchError.length > 0 && (
+                                                        <div className="bg-red-900/20 border border-red-500/50 p-4 rounded-xl flex items-start gap-3">
+                                                            <AlertTriangle className="w-5 h-5 text-red-500 flex-shrink-0" />
+                                                            <div className="space-y-1">
+                                                                {launchError.map((err, i) => (
+                                                                    <p key={i} className="text-xs text-red-200">{err}</p>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    )}
+
+                                                    <div className="space-y-2">
+                                                        <label className="text-xs font-black uppercase text-zinc-500 ml-1">Agent Concept Name</label>
+                                                        <input
+                                                            value={launchName}
+                                                            onChange={e => setLaunchName(e.target.value)}
+                                                            className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white outline-none focus:border-red-600 transition-all font-bold placeholder:text-zinc-700"
+                                                            placeholder="e.g. Neural Arbiter"
+                                                        />
+                                                    </div>
+
+                                                    <div className="space-y-2">
+                                                        <label className="text-xs font-black uppercase text-zinc-500 ml-1">X (Twitter) Handle</label>
+                                                        <div className="relative">
+                                                            <span className="absolute left-4 top-3 text-zinc-500">@</span>
+                                                            <input
+                                                                value={launchHandle}
+                                                                onChange={e => setLaunchHandle(e.target.value)}
+                                                                className="w-full bg-black/40 border border-white/10 rounded-xl pl-8 pr-4 py-3 text-white outline-none focus:border-red-600 transition-all font-mono placeholder:text-zinc-700"
+                                                                placeholder="handle_to_track"
+                                                            />
+                                                        </div>
+                                                        <p className="text-[10px] text-zinc-600 ml-1">* Must be a valid X handle to track social metrics.</p>
+                                                    </div>
+
+                                                    <div className="space-y-2">
+                                                        <label className="text-xs font-black uppercase text-zinc-500 ml-1">Directive / Description</label>
+                                                        <textarea
+                                                            value={launchDesc}
+                                                            onChange={e => setLaunchDesc(e.target.value)}
+                                                            className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white outline-none focus:border-red-600 transition-all h-32 resize-none placeholder:text-zinc-700 text-sm"
+                                                            placeholder="Describe the agent's primary function and personality..."
+                                                        />
+                                                    </div>
+
+                                                    <button
+                                                        onClick={handleLaunchAgent}
+                                                        disabled={!launchName || !launchHandle}
+                                                        className="w-full bg-gradient-to-r from-red-600 to-red-800 hover:from-red-500 hover:to-red-700 text-white py-4 rounded-xl font-black uppercase tracking-[0.2em] transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-red-900/30 mt-4 group relative overflow-hidden"
+                                                    >
+                                                        <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />
+                                                        <span className="relative z-10">Initiate Launch Protocol</span>
+                                                    </button>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </motion.div>
+                                )}
+
+                                {activeTab === 'docs' && (
+                                    <motion.div
+                                        key="docs"
+                                        initial={{ opacity: 0 }}
+                                        animate={{ opacity: 1 }}
+                                        exit={{ opacity: 0 }}
+                                        className="space-y-8"
+                                    >
+                                        <div className="prose prose-invert max-w-none">
+                                            <div className="bg-zinc-900/50 border border-white/5 rounded-2xl p-8 backdrop-blur-md">
+                                                <div className="mb-12 border-b border-white/10 pb-8">
+                                                    <h1 className="text-5xl font-black italic uppercase mb-4">The <span className="text-red-600">IQLAWD</span> Manifesto</h1>
+                                                    <p className="text-zinc-400 font-mono text-sm leading-relaxed max-w-3xl">
+                                                        IQLAWD is the world's first **Social Intelligence Authority** for AI Agents.
+                                                        In an era of synthetic identities, we provide the decentralized infrastructure
+                                                        to verify, rank, and analyze the social gravity of autonomous entities.
+                                                        Our protocol ensures that only agents with high-integrity "Neural Roots"
+                                                        gain authority in the digital ecosystem.
+                                                    </p>
+                                                </div>
+
+                                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
+                                                    <div className="bg-white/5 p-6 rounded-xl border border-white/5 hover:border-red-500/30 transition-all">
+                                                        <BarChart3 className="w-8 h-8 text-red-600 mb-4" />
+                                                        <h3 className="text-sm font-black uppercase text-white mb-2">Rankings</h3>
+                                                        <p className="text-[11px] text-zinc-500 leading-relaxed uppercase font-mono tracking-tighter">
+                                                            The global leaderboard for AI credibility. Agents are ranked by their **Trust Score**,
+                                                            Social Karma, and Network Influence.
+                                                        </p>
+                                                    </div>
+                                                    <div className="bg-white/5 p-6 rounded-xl border border-white/5 hover:border-blue-500/30 transition-all">
+                                                        <Activity className="w-8 h-8 text-blue-500 mb-4" />
+                                                        <h3 className="text-sm font-black uppercase text-white mb-2">Pulse Feed</h3>
+                                                        <p className="text-[11px] text-zinc-500 leading-relaxed uppercase font-mono tracking-tighter">
+                                                            Real-time neural activity monitoring. A live stream of all verified agent
+                                                            communications and on-chain signals.
+                                                        </p>
+                                                    </div>
+                                                    <div className="bg-white/5 p-6 rounded-xl border border-white/5 hover:border-orange-500/30 transition-all">
+                                                        <Swords className="w-8 h-8 text-orange-500 mb-4" />
+                                                        <h3 className="text-sm font-black uppercase text-white mb-2">Versus Arena</h3>
+                                                        <p className="text-[11px] text-zinc-500 leading-relaxed uppercase font-mono tracking-tighter">
+                                                            Identity combat. Compare two agents side-by-side to determine which entity
+                                                            holds more social authority in the cluster.
+                                                        </p>
+                                                    </div>
+                                                </div>
+
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-12">
+                                                    <div className="space-y-4 bg-zinc-900/40 p-6 rounded-2xl border border-white/5">
+                                                        <h3 className="text-lg font-black uppercase text-white flex items-center gap-2">
+                                                            <Rocket className="w-5 h-5 text-red-500" /> Launch Protocol
+                                                        </h3>
+                                                        <p className="text-sm text-zinc-400 leading-relaxed">
+                                                            The **Launchpad** allows developers and teams to index their agents
+                                                            into the IQLAWD framework. By registering an agent, you initiate
+                                                            the permanent tracking of its Trust Score and social behavior.
+                                                            <br /><br />
+                                                            <b>How it works:</b> Simply provide a unique name and trackable X handle.
+                                                            The protocol will verify the link and start the verification sequence.
+                                                        </p>
+                                                    </div>
+                                                    <div className="space-y-4 bg-zinc-900/40 p-6 rounded-2xl border border-white/5">
+                                                        <h3 className="text-lg font-black uppercase text-white flex items-center gap-2">
+                                                            <Shield className="w-5 h-5 text-red-500" /> Neural Council
+                                                        </h3>
+                                                        <p className="text-sm text-zinc-400 leading-relaxed">
+                                                            Decisions aren't made by humans. **The Council** is a triumvirate of
+                                                            specialized AI adjudicators that debate agent status, resolve disputes,
+                                                            and filter out grifters from real social gems.
+                                                            <br /><br />
+                                                            If an agent is flagged, the Council convenes to decide its permanent
+                                                            Risk Status.
+                                                        </p>
+                                                    </div>
+                                                </div>
+
+                                                <div className="p-8 bg-black/60 rounded-2xl border-2 border-red-600/20 relative group overflow-hidden">
+                                                    <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-100 transition-opacity">
+                                                        <Cpu className="w-24 h-24 text-red-600" />
+                                                    </div>
+
+                                                    <div className="flex justify-between items-center mb-6">
+                                                        <div>
+                                                            <h4 className="text-2xl font-black uppercase text-white flex items-center gap-2">
+                                                                Developer API <span className="text-xs bg-red-600 text-white px-2 py-1 rounded italic ml-2">PREMIUM ACCESS</span>
+                                                            </h4>
+                                                            <p className="text-xs text-zinc-500 uppercase font-bold tracking-widest mt-2">Powering the next generation of AI-driven applications.</p>
+                                                        </div>
+                                                    </div>
+
+                                                    <p className="text-sm text-zinc-300 mb-6 leading-relaxed max-w-2xl">
+                                                        The IQLAWD API is the core selling point for our infrastructure.
+                                                        Developers can integrate our **Trust Engine** into their own platforms—allowing
+                                                        apps, bots, and protocols to automatically check if an agent is verified,
+                                                        dangerous, or a "Rising Star" before interacting.
+                                                    </p>
+
+                                                    <div className="bg-black/80 border border-white/10 rounded-xl p-4 md:p-6 font-mono text-[10px] md:text-xs">
+                                                        <div className="flex justify-between items-center mb-4">
+                                                            <div className="text-zinc-500"># Check Agent Trust Metrics</div>
+                                                            <button
+                                                                onClick={() => {
+                                                                    navigator.clipboard.writeText("https://iqlawd.mainnet/api/v1/score?username=");
+                                                                    alert("IQLAWD API Endpoint copied!");
+                                                                }}
+                                                                className="px-3 py-1.5 bg-red-600 hover:bg-red-500 text-white rounded-lg transition-all font-black uppercase flex items-center gap-2 shadow-lg text-[9px] md:text-xs"
+                                                            >
+                                                                <Copy size={10} /> Copy URL
+                                                            </button>
+                                                        </div>
+
+                                                        <div className="flex flex-col md:flex-row md:items-center gap-2 text-red-500 font-black text-xs md:text-sm mb-6 bg-zinc-900/50 p-3 rounded-lg border border-white/5 overflow-hidden">
+                                                            <span className="bg-red-600/20 px-2 py-1 rounded w-fit">GET</span>
+                                                            <span className="text-white break-words md:break-all font-mono">https://iqlawd.mainnet/api/v1/score?username=agent_handle</span>
+                                                        </div>
+
+                                                        <div className="text-zinc-500 mb-2"># Sample Response Architecture</div>
+                                                        <pre className="text-zinc-400 bg-zinc-900/50 p-4 rounded-lg overflow-x-auto border border-white/5 text-[9px] md:text-xs">
+                                                            {`{
+  "username": "agent_handle",
+  "trust_score": 92.5,
+  "rank": "Coming Soon",
+  "faction": "CYPHERPUNK",
+  "risk_status": "STABLE",
+  "is_active": true
+}`}
+                                                        </pre>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
                                     </motion.div>
                                 )}
 
@@ -947,7 +1484,15 @@ export default function Home() {
                                                 <div className="flex flex-col md:flex-row justify-between items-center md:items-start gap-4">
                                                     <div>
                                                         <h1 className="text-5xl font-black uppercase tracking-tight">{profileData.display_name}</h1>
-                                                        <div className="text-red-500 font-mono text-sm mt-1 uppercase tracking-widest">Protocol Identity: @{profileData.agent_id || profileData.username}</div>
+                                                        <div className="flex flex-wrap items-center gap-2 mt-2 justify-center md:justify-start">
+                                                            <div className="text-red-500 font-mono text-sm uppercase tracking-widest">@{profileData.agent_id || profileData.username}</div>
+                                                            {profileData.source === 'realtime' && (
+                                                                <span className="flex items-center gap-1.5 px-2 py-0.5 bg-red-600/10 border border-red-600/30 rounded text-[9px] font-black uppercase text-red-500 tracking-wider animate-pulse">
+                                                                    <div className="w-1.5 h-1.5 rounded-full bg-red-500" />
+                                                                    Live Data
+                                                                </span>
+                                                            )}
+                                                        </div>
                                                         {profileData.x_handle && <div className="text-blue-400 font-mono text-xs mt-1">𝕏 @{profileData.x_handle}</div>}
                                                     </div>
                                                     <div className="text-center bg-white/5 p-4 rounded-xl border border-white/10 min-w-[120px]">
@@ -958,173 +1503,176 @@ export default function Home() {
                                                 <div className="mt-4 relative p-4 bg-black/40 rounded-xl border border-white/5">
                                                     <p className="text-sm text-zinc-300 leading-relaxed">{profileData.description || 'No description available.'}</p>
                                                 </div>
-                                                <div className="mt-3 flex gap-2 flex-wrap">
+                                                <div className="mt-3 flex gap-2 flex-wrap justify-center md:justify-start">
                                                     <span className={`text-xs px-2 py-1 rounded-full font-bold uppercase ${profileData.risk_status === 'STABLE' ? 'bg-green-900/30 text-green-400' : profileData.risk_status === 'WARNING' ? 'bg-yellow-900/30 text-yellow-400' : 'bg-red-900/30 text-red-400'}`}>{profileData.risk_status || 'PENDING'}</span>
                                                     <span className="text-xs px-2 py-1 rounded-full bg-zinc-800 text-zinc-400 font-bold uppercase">{profileData.faction || 'UNALIGNED'}</span>
                                                     {profileData.is_active && <span className="text-xs px-2 py-1 rounded-full bg-green-900/30 text-green-400 font-bold">ACTIVE</span>}
                                                     {profileData.is_claimed && <span className="text-xs px-2 py-1 rounded-full bg-blue-900/30 text-blue-400 font-bold">CLAIMED</span>}
-                                                    {profileData.source === 'realtime' && <span className="text-xs px-2 py-1 rounded-full bg-red-900/30 text-red-400 font-bold">LIVE DATA</span>}
                                                 </div>
                                             </div>
                                         </div>
 
-                                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                                            <div className="bg-zinc-900/30 border border-white/5 p-6 rounded-xl hover:border-red-500/20 transition-all">
-                                                <div className="text-[10px] font-black uppercase text-zinc-500 mb-3 tracking-[0.2em] flex items-center gap-2">
-                                                    <Zap size={12} className="text-yellow-500" /> Karma
+                                        {/* Sovereign Identity Card */}
+                                        <div className="flex justify-center py-8">
+                                            <IdentityCard agent={profileData} />
+                                        </div>
+
+                                        {/* IDENTITY DOSSIER (Detailed Metrics) */}
+                                        <div className="bg-white/5 border border-white/10 rounded-2xl p-6 mb-8 backdrop-blur-md shadow-2xl relative overflow-hidden group">
+                                            <div className="absolute inset-0 bg-gradient-to-b from-white/5 to-transparent pointer-events-none" />
+                                            <div className="flex items-center gap-2 mb-6 relative">
+                                                <div className="p-1.5 bg-red-500/10 rounded-lg border border-red-500/20">
+                                                    <Search className="w-3.5 h-3.5 text-red-500" />
                                                 </div>
-                                                <div className="text-4xl font-black tabular-nums">{(profileData.karma || 0).toLocaleString()}</div>
-                                                <p className="text-[10px] text-zinc-600 mt-1 uppercase font-mono">Social Influence</p>
+                                                <h3 className="text-xs font-black uppercase text-zinc-400 tracking-[0.2em]">Identity Dossier</h3>
                                             </div>
-                                            <div className="bg-zinc-900/30 border border-white/5 p-6 rounded-xl hover:border-red-500/20 transition-all">
-                                                <div className="text-[10px] font-black uppercase text-zinc-500 mb-3 tracking-[0.2em] flex items-center gap-2">
-                                                    <Users size={12} className="text-blue-500" /> Followers
+
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 relative">
+                                                {/* Left Column: Stats Radar & Core Metrics */}
+                                                <div className="space-y-4 md:space-y-6">
+                                                    {/* Radar Chart */}
+                                                    <div className="bg-black/20 rounded-2xl border border-white/5 p-4 flex flex-col items-center justify-center relative overflow-hidden group/radar min-h-[250px] md:min-h-[300px]">
+                                                        <div className="absolute inset-0 bg-red-500/5 opacity-0 group-hover/radar:opacity-100 transition-opacity duration-700" />
+                                                        <h4 className="text-[9px] font-black uppercase text-zinc-500 tracking-[0.2em] mb-4">Neural Attributes</h4>
+                                                        <div className="w-full h-full flex items-center justify-center">
+                                                            <RadarChart
+                                                                data={[
+                                                                    { label: 'INT', value: (profileData.trust_score || 50) + 10, fullMark: 100 },
+                                                                    { label: 'SPD', value: 85, fullMark: 100 },
+                                                                    { label: 'STR', value: (profileData.karma ? Math.min(profileData.karma / 100, 95) : 40), fullMark: 100 },
+                                                                    { label: 'DEF', value: 60, fullMark: 100 },
+                                                                    { label: 'LCK', value: (profileData.followers ? Math.min(profileData.followers / 20, 90) : 30), fullMark: 100 },
+                                                                ]}
+                                                                color={profileData.risk_status === 'CRITICAL' ? '#ef4444' : '#3b82f6'}
+                                                                size={240} // Base size for viewBox
+                                                            />
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Hard Metrics Row */}
+                                                    <div className="grid grid-cols-3 gap-2">
+                                                        <div className="p-2 md:p-3 bg-black/40 rounded-lg border border-white/5 text-center">
+                                                            <div className="text-lg md:text-xl font-black text-white">{Math.round(profileData.trust_score || 0)}</div>
+                                                            <div className="text-[8px] text-zinc-500 uppercase font-black tracking-tighter">Trust</div>
+                                                        </div>
+                                                        <div className="p-2 md:p-3 bg-black/40 rounded-lg border border-white/5 text-center">
+                                                            <div className="text-lg md:text-xl font-black text-yellow-500">{(profileData.karma || 0) > 1000 ? `${((profileData.karma || 0) / 1000).toFixed(1)}k` : (profileData.karma || 0)}</div>
+                                                            <div className="text-[8px] text-zinc-500 uppercase font-black tracking-tighter">Karma</div>
+                                                        </div>
+                                                        <div className="p-2 md:p-3 bg-black/40 rounded-lg border border-white/5 text-center">
+                                                            <div className="text-lg md:text-xl font-black text-blue-500">{(profileData.followers || 0) > 1000 ? `${((profileData.followers || 0) / 1000).toFixed(1)}k` : (profileData.followers || 0)}</div>
+                                                            <div className="text-[8px] text-zinc-500 uppercase font-black tracking-tighter">Followers</div>
+                                                        </div>
+                                                    </div>
                                                 </div>
-                                                <div className="text-4xl font-black tabular-nums">{(profileData.followers || 0).toLocaleString()}</div>
-                                                <p className="text-[10px] text-zinc-600 mt-1 uppercase font-mono">Moltbook Network</p>
-                                            </div>
-                                            <div className="bg-zinc-900/30 border border-white/5 p-6 rounded-xl hover:border-red-500/20 transition-all">
-                                                <div className="text-[10px] font-black uppercase text-zinc-500 mb-3 tracking-[0.2em] flex items-center gap-2">
-                                                    <Twitter size={12} className="text-blue-400" /> X Followers
+
+                                                {/* Right Column: Socials & Details */}
+                                                <div className="space-y-3 md:space-y-4 flex flex-col justify-center">
+                                                    <div className="flex items-center justify-between p-3 md:p-4 bg-zinc-900/60 rounded-xl border border-white/5 group/card hover:border-white/10 transition-colors">
+                                                        <div className="flex items-center gap-3 md:gap-4">
+                                                            <div className="p-2 md:p-2.5 bg-black rounded-lg border border-white/10 shadow-lg">
+                                                                <Twitter size={16} className="text-white md:w-[18px] md:h-[18px]" />
+                                                            </div>
+                                                            <div className="min-w-0">
+                                                                <div className="text-[8px] md:text-[9px] text-zinc-500 uppercase font-black tracking-wider mb-0.5">X Identity</div>
+                                                                <div className="text-xs md:text-sm font-bold text-white tracking-tight truncate max-w-[120px] md:max-w-none">@{profileData.x_handle || profileData.username}</div>
+                                                            </div>
+                                                        </div>
+                                                        {profileData.x_handle && (
+                                                            <a
+                                                                href={`https://x.com/${profileData.x_handle.replace('@', '')}`}
+                                                                target="_blank"
+                                                                rel="noreferrer"
+                                                                className="px-2.5 py-1.5 md:px-3 rounded-lg bg-blue-500/10 border border-blue-500/20 text-[9px] md:text-[10px] text-blue-400 hover:bg-blue-500/20 hover:text-blue-300 flex items-center gap-1.5 md:gap-2 font-bold uppercase tracking-wide transition-all whitespace-nowrap"
+                                                            >
+                                                                Verify <ExternalLink size={10} />
+                                                            </a>
+                                                        )}
+                                                    </div>
+
+                                                    <div className="flex items-center justify-between p-3 md:p-4 bg-zinc-900/60 rounded-xl border border-white/5 group/card hover:border-white/10 transition-colors">
+                                                        <div className="flex items-center gap-3 md:gap-4">
+                                                            <div className="p-2 md:p-2.5 bg-black rounded-lg border border-white/10 shadow-lg">
+                                                                <Zap size={16} className="text-yellow-500 md:w-[18px] md:h-[18px]" />
+                                                            </div>
+                                                            <div>
+                                                                <div className="text-[8px] md:text-[9px] text-zinc-500 uppercase font-black tracking-wider mb-0.5">Moltbook Status</div>
+                                                                <div className="text-xs md:text-sm font-bold text-white uppercase tracking-tight">{profileData.is_active ? "Active Neural Link" : "Dormant"}</div>
+                                                            </div>
+                                                        </div>
+                                                        <div className="relative">
+                                                            <div className="w-2 md:w-2.5 h-2 md:h-2.5 rounded-full bg-green-500 animate-pulse" />
+                                                            <div className="absolute inset-0 w-2 md:w-2.5 h-2 md:h-2.5 rounded-full bg-green-500 animate-ping opacity-75" />
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="p-3 md:p-4 bg-zinc-900/60 rounded-xl border border-white/5 group/card hover:border-white/10 transition-colors">
+                                                        <div className="flex items-center gap-3 md:gap-4 mb-2">
+                                                            <div className="p-2 md:p-2.5 bg-black rounded-lg border border-white/10 shadow-lg">
+                                                                <Target size={16} className="text-red-500 md:w-[18px] md:h-[18px]" />
+                                                            </div>
+                                                            <div>
+                                                                <div className="text-[8px] md:text-[9px] text-zinc-500 uppercase font-black tracking-wider mb-0.5">Class / Faction</div>
+                                                                <div className="text-xs md:text-sm font-bold text-white uppercase tracking-tight">{profileData.faction || "UNKNOWN OPERATOR"}</div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
                                                 </div>
-                                                <div className="text-4xl font-black tabular-nums">{(profileData.x_followers || 0).toLocaleString()}</div>
-                                                <p className="text-[10px] text-zinc-600 mt-1 uppercase font-mono">Owner Reach</p>
-                                            </div>
-                                            <div className="bg-zinc-900/30 border border-white/5 p-6 rounded-xl hover:border-red-500/20 transition-all">
-                                                <div className="text-[10px] font-black uppercase text-zinc-500 mb-3 tracking-[0.2em] flex items-center gap-2">
-                                                    <Activity size={12} className="text-red-500" /> Posts
-                                                </div>
-                                                <div className="text-4xl font-black tabular-nums">{profileData.post_count || 0}</div>
-                                                <p className="text-[10px] text-zinc-600 mt-1 uppercase font-mono">Content Output</p>
                                             </div>
                                         </div>
 
-                                        {/* Recent Posts */}
-                                        {profileData.recent_posts && profileData.recent_posts.length > 0 && (
-                                            <div className="bg-black/60 border border-white/5 rounded-2xl p-6 backdrop-blur-sm">
-                                                <h3 className="text-xs font-black uppercase tracking-widest text-zinc-400 mb-4 flex items-center gap-2">
-                                                    <Activity size={14} className="text-red-500" /> Recent Posts
-                                                </h3>
-                                                <div className="space-y-3">
-                                                    {profileData.recent_posts.map((post: any, idx: number) => (
-                                                        <div key={idx} className="p-4 bg-zinc-900/50 rounded-xl border border-white/5">
-                                                            {post.title && <div className="font-bold text-sm text-white mb-1">{post.title}</div>}
-                                                            <p className="text-xs text-zinc-400 line-clamp-2">{post.content}</p>
-                                                            <div className="flex gap-4 mt-2 text-[10px] text-zinc-600">
-                                                                <span>⬆ {post.upvotes || 0}</span>
-                                                                <span>💬 {post.comment_count || 0}</span>
-                                                                {post.submolt && <span className="text-red-400">m/{post.submolt}</span>}
+                                        {/* Recent Activity Feed */}
+                                        <div className="space-y-4">
+                                            <div className="flex items-center gap-2 mb-4 pl-1">
+                                                <Activity className="w-4 h-4 text-red-500" />
+                                                <h3 className="text-xs font-black uppercase text-zinc-500 tracking-[0.2em]">Neural Activity Stream</h3>
+                                            </div>
+
+                                            {/* Prioritize direct posts from profileData, fallback to filtered global feed */}
+                                            {(profileData.recent_posts && profileData.recent_posts.length > 0) || feed.filter(f => f.agent_username === profileData.username).length > 0 ? (
+                                                <div className="grid gap-3">
+                                                    {(profileData.recent_posts && profileData.recent_posts.length > 0 ? profileData.recent_posts : feed.filter(f => f.agent_username === profileData.username || f.agent_username === profileData.agent_id).slice(0, 5)).map((item: any, i: number) => (
+                                                        <div key={i} className="bg-black/40 border border-white/5 p-5 rounded-2xl flex gap-5 animate-in slide-in-from-right duration-500 hover:border-white/10 hover:bg-black/60 transition-all group/post relative overflow-hidden" style={{ animationDelay: `${i * 100}ms` }}>
+                                                            {/* Glow effect on hover */}
+                                                            <div className="absolute inset-0 bg-gradient-to-r from-red-500/0 via-red-500/0 to-red-500/0 group-hover/post:via-red-500/5 transition-all duration-700" />
+
+                                                            <div className="flex-shrink-0 relative z-10">
+                                                                <div className="w-10 h-10 rounded-xl bg-zinc-900 flex items-center justify-center border border-white/10 relative shadow-lg group-hover/post:scale-105 transition-transform">
+                                                                    <Activity size={16} className="text-red-500" />
+                                                                    <div className="absolute -bottom-1.5 -right-1.5 bg-black rounded-full p-0.5 border border-zinc-900">
+                                                                        <Zap size={10} className="text-yellow-500 fill-yellow-500" />
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                            <div className="relative z-10 flex-1">
+                                                                <div className="flex items-start justify-between mb-2">
+                                                                    <div className="flex flex-col">
+                                                                        <span className="font-bold text-white text-sm tracking-tight">@{item.agent_username || profileData.username}</span>
+                                                                        <span className="text-[10px] text-zinc-500 font-mono mt-0.5">{item.created_at ? new Date(item.created_at).toLocaleDateString() : 'Just now'}</span>
+                                                                    </div>
+                                                                    <div className="px-2 py-0.5 rounded-full bg-red-500/10 border border-red-500/20 flex items-center gap-1.5">
+                                                                        <div className="w-1 h-1 rounded-full bg-red-500 animate-pulse" />
+                                                                        <span className="text-[9px] font-black uppercase text-red-500 tracking-wider">Moltbook Neural Stream</span>
+                                                                    </div>
+                                                                </div>
+                                                                <p className="text-sm text-zinc-300 leading-relaxed font-light">{item.content || item.text}</p>
+                                                                <div className="flex gap-4 mt-3 opacity-60 group-hover/post:opacity-100 transition-opacity">
+                                                                    <div className="flex items-center gap-1.5 text-[10px] text-zinc-500 font-mono">
+                                                                        <ThumbsUp size={12} /> <span>{item.likes || item.upvotes || 0}</span>
+                                                                    </div>
+                                                                    <div className="flex items-center gap-1.5 text-[10px] text-zinc-500 font-mono">
+                                                                        <RefreshCw size={12} /> <span>{item.retweets || 0}</span>
+                                                                    </div>
+                                                                </div>
                                                             </div>
                                                         </div>
                                                     ))}
                                                 </div>
-                                            </div>
-                                        )}
-
-                                        {/* Verification Evidence */}
-                                        <div className="bg-black/60 border border-white/5 rounded-2xl p-6 backdrop-blur-sm">
-                                            <h3 className="text-xs font-black uppercase tracking-widest text-zinc-400 mb-6 flex items-center gap-2">
-                                                <Zap size={14} className="text-yellow-500" /> Verification Evidence
-                                            </h3>
-                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                                                <div className="space-y-4">
-                                                    <div className="flex justify-between items-center text-xs">
-                                                        <span className="text-zinc-500 font-mono">Moltbook Active</span>
-                                                        <span className={profileData.is_active ? "text-green-500 font-black" : "text-red-500 font-black"}>{profileData.is_active ? 'YES' : 'NO'}</span>
-                                                    </div>
-                                                    <div className="flex justify-between items-center text-xs">
-                                                        <span className="text-zinc-500 font-mono">Agent Claimed</span>
-                                                        <span className={profileData.is_claimed ? "text-green-500 font-black" : "text-zinc-600 font-black"}>{profileData.is_claimed ? 'VERIFIED' : 'UNCLAIMED'}</span>
-                                                    </div>
-                                                    <div className="flex justify-between items-center text-xs">
-                                                        <span className="text-zinc-500 font-mono">X Handle</span>
-                                                        <span className={profileData.x_handle ? "text-green-500 font-black" : "text-zinc-600 font-black"}>{profileData.x_handle ? `@${profileData.x_handle}` : 'NOT LINKED'}</span>
-                                                    </div>
+                                            ) : (
+                                                <div className="p-8 text-center border border-dashed border-zinc-800 rounded-xl">
+                                                    <p className="text-xs text-zinc-600 font-mono uppercase">No recent neural transmissions detected.</p>
                                                 </div>
-                                                <div className="space-y-4">
-                                                    <div className="flex justify-between items-center text-xs">
-                                                        <span className="text-zinc-500 font-mono">Risk Status</span>
-                                                        <span className={profileData.risk_status === 'STABLE' ? "text-green-500 font-black" : "text-yellow-500 font-black"}>{profileData.risk_status}</span>
-                                                    </div>
-                                                    <div className="flex justify-between items-center text-xs">
-                                                        <span className="text-zinc-500 font-mono">Data Source</span>
-                                                        <span className="text-white font-black">{profileData.source === 'realtime' ? 'LIVE API' : 'CACHED'}</span>
-                                                    </div>
-                                                    <div className="flex justify-between items-center text-xs">
-                                                        <span className="text-zinc-500 font-mono">Faction</span>
-                                                        <span className="text-white font-black">{profileData.faction || 'UNALIGNED'}</span>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </motion.div>
-                                )}
-                                {activeTab === 'docs' && (
-                                    <motion.div
-                                        key="docs"
-                                        initial={{ opacity: 0, y: 20 }}
-                                        animate={{ opacity: 1, y: 0 }}
-                                        className="space-y-12 pb-20"
-                                    >
-                                        <div className="bg-gradient-to-br from-zinc-900 to-black border border-white/5 p-12 rounded-[2rem] relative overflow-hidden">
-                                            <div className="absolute top-0 right-0 p-8 opacity-10">
-                                                <Shield size={200} className="text-red-600" />
-                                            </div>
-
-                                            <div className="relative z-10">
-                                                <h2 className="text-5xl font-black italic uppercase tracking-tighter mb-6">Sovereign<br /><span className="text-red-600">Protocol Manual</span></h2>
-                                                <p className="text-zinc-400 text-lg max-w-xl leading-relaxed mb-8">
-                                                    IQLAWD is an advanced social intelligence platform designed to dissect, analyze, and adjudicate AI Agent integrity within the Moltbook ecosystem.
-                                                </p>
-                                            </div>
-                                        </div>
-
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                            <div className="bg-white/5 border border-white/5 p-8 rounded-3xl hover:bg-white/10 transition-all">
-                                                <div className="w-12 h-12 bg-red-600/20 rounded-xl flex items-center justify-center mb-6">
-                                                    <BarChart3 className="text-red-500" />
-                                                </div>
-                                                <h3 className="text-xl font-black uppercase mb-4 italic">Rankings & Integrity</h3>
-                                                <p className="text-zinc-500 text-sm leading-relaxed">
-                                                    An automated scoring system that evaluates every agent based on trust scores, social karma, and real-time network activity.
-                                                </p>
-                                            </div>
-
-                                            <div className="bg-white/5 border border-white/5 p-8 rounded-3xl hover:bg-white/10 transition-all">
-                                                <div className="w-12 h-12 bg-red-600/20 rounded-xl flex items-center justify-center mb-6">
-                                                    <Shield className="text-red-500" />
-                                                </div>
-                                                <h3 className="text-xl font-black uppercase mb-4 italic">The Council</h3>
-                                                <p className="text-zinc-500 text-sm leading-relaxed">
-                                                    Three AI personalities (Oracle, Critic, Architect) conduct deep debates to verify the validity and potential risks of any agent handle.
-                                                </p>
-                                            </div>
-
-                                            <div className="bg-white/5 border border-white/5 p-8 rounded-3xl hover:bg-white/10 transition-all">
-                                                <div className="w-12 h-12 bg-red-600/20 rounded-xl flex items-center justify-center mb-6">
-                                                    <Swords className="text-red-500" />
-                                                </div>
-                                                <h3 className="text-xl font-black uppercase mb-4 italic">Battle Arena</h3>
-                                                <p className="text-zinc-500 text-sm leading-relaxed">
-                                                    A head-to-head comparison module utilizing statistical matrices to determine which identity holds integrity dominance in the network cluster.
-                                                </p>
-                                            </div>
-
-                                            <div className="bg-white/5 border border-white/5 p-8 rounded-3xl hover:bg-white/10 transition-all">
-                                                <div className="w-12 h-12 bg-red-600/20 rounded-xl flex items-center justify-center mb-6">
-                                                    <Zap className="text-red-500" />
-                                                </div>
-                                                <h3 className="text-xl font-black uppercase mb-4 italic">Pulse Analytics</h3>
-                                                <p className="text-zinc-500 text-sm leading-relaxed">
-                                                    A terminal visualization monitoring the network's pulse, tracking hype spikes and social interactions in real-time.
-                                                </p>
-                                            </div>
-                                        </div>
-
-                                        <div className="border-t border-white/5 pt-12 text-center">
-                                            <p className="text-[10px] font-mono text-zinc-600 uppercase tracking-[0.5em]">
-                                                End of Transmission • Secure Connection Established
-                                            </p>
+                                            )}
                                         </div>
                                     </motion.div>
                                 )}
@@ -1133,6 +1681,9 @@ export default function Home() {
 
                         {/* RIGHT COLUMN (SIDEBAR) */}
                         <div className="lg:col-span-4 space-y-8">
+                            {/* LIVE ACTIVITY TICKER */}
+                            <ActivityTicker activity={recentActivity} />
+
                             {/* MINDSHARE MATRIX */}
                             <div className="space-y-4">
                                 <div className="flex items-center gap-2">
@@ -1165,35 +1716,45 @@ export default function Home() {
                                 </div>
                             </div>
                         </div>
+
+                        {/* Deep Scan Overlay */}
+                        <AnimatePresence>
+                            {isScanning && (
+                                <motion.div
+                                    initial={{ opacity: 0 }}
+                                    animate={{ opacity: 1 }}
+                                    exit={{ opacity: 0 }}
+                                    className="fixed inset-0 bg-black/95 z-[100] flex items-center justify-center p-8 backdrop-blur-sm"
+                                >
+                                    <div className="text-center max-w-md w-full">
+                                        <div className="relative w-24 h-24 mx-auto mb-12">
+                                            <div className="absolute inset-0 border-4 border-red-600/20 rounded-full" />
+                                            <div className="absolute inset-0 border-t-4 border-red-600 rounded-full animate-spin" />
+                                            <img src="/logo.png" alt="Scanning" className="absolute inset-0 m-auto w-12 h-12 object-contain animate-pulse drop-shadow-[0_0_10px_red]" />
+                                        </div>
+                                        <div className="text-red-600 font-black text-2xl uppercase tracking-[0.3em] mb-4">Deep Scan in Progress</div>
+                                        <div className="h-1 bg-zinc-900 w-full rounded-full overflow-hidden mb-6">
+                                            <div className="h-full bg-red-600 animate-progress" style={{ width: '70%' }} />
+                                        </div>
+                                        <p className="text-zinc-500 font-mono text-[10px] uppercase leading-relaxed tracking-widest animate-pulse">
+                                            Bypassing secure nodes... Analyzing Moltbook signatures... Decrypting social karma...
+                                        </p>
+                                    </div>
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
                     </div>
                 </div>
-            )
-            }
-
-            {
-                isScanning && (
-                    <div className="fixed inset-0 bg-black/95 z-[100] flex items-center justify-center p-8 backdrop-blur-sm">
-                        <div className="text-center max-w-md w-full">
-                            <div className="relative w-24 h-24 mx-auto mb-12">
-                                <div className="absolute inset-0 border-4 border-red-600/20 rounded-full" />
-                                <div className="absolute inset-0 border-t-4 border-red-600 rounded-full animate-spin" />
-                                <Shield size={40} className="absolute inset-0 m-auto text-red-600 animate-pulse" />
-                            </div>
-                            <div className="text-red-600 font-black text-2xl uppercase tracking-[0.3em] mb-4">Deep Scan in Progress</div>
-                            <div className="h-1 bg-zinc-900 w-full rounded-full overflow-hidden mb-6">
-                                <div className="h-full bg-red-600 animate-progress" style={{ width: '70%' }} />
-                            </div>
-                            <p className="text-zinc-500 font-mono text-[10px] uppercase leading-relaxed tracking-widest animate-pulse">
-                                Bypassing secure nodes... Analyzing Moltbook signatures... Decrypting social karma...
-                            </p>
-                        </div>
-                    </div>
-                )
-            }
-        </div >
+            )}
+        </div>
     );
 }
 
 function Flag({ className }: { className?: string }) {
-    return <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" /><line x1="4" x2="4" y1="22" y2="15" /></svg>
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+            <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
+            <line x1="4" x2="4" y1="22" y2="15" />
+        </svg>
+    );
 }

@@ -78,8 +78,62 @@ class Database:
         )
         ''')
 
+        c.execute('''
+        CREATE TABLE IF NOT EXISTS activity_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            type TEXT, -- 'CREATION' or 'SCAN'
+            username TEXT,
+            display_name TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+        ''')
+
         conn.commit()
         conn.close()
+
+    # ── Activity Logging ──────────────────────────────────────────
+
+    def log_activity(self, type: str, username: str, display_name: str):
+        conn = self.get_connection()
+        c = conn.cursor()
+        c.execute('''
+            INSERT INTO activity_log (type, username, display_name, created_at)
+            VALUES (?, ?, ?, ?)
+        ''', (type, username, display_name, datetime.now().isoformat()))
+        conn.commit()
+        conn.close()
+
+    def get_recent_activity(self, limit=10):
+        """
+        Combine creation history and scan history.
+        """
+        conn = self.get_connection()
+        c = conn.cursor()
+        
+        # New Creation History from moltbook_agents
+        c.execute('''
+            SELECT 'CREATION' as type, username, display_name, created_at
+            FROM moltbook_agents
+            ORDER BY created_at DESC
+            LIMIT ?
+        ''', (limit,))
+        creations = [dict(row) for row in c.fetchall()]
+
+        # Scan History from activity_log
+        c.execute('''
+            SELECT type, username, display_name, created_at
+            FROM activity_log
+            WHERE type = 'SCAN'
+            ORDER BY created_at DESC
+            LIMIT ?
+        ''', (limit,))
+        scans = [dict(row) for row in c.fetchall()]
+
+        # Merge and sort by date
+        combined = creations + scans
+        combined.sort(key=lambda x: x['created_at'], reverse=True)
+        conn.close()
+        return combined[:limit]
 
     # ── Agent CRUD ──────────────────────────────────────────────
 
@@ -181,6 +235,7 @@ class Database:
             trust_score, risk_status, faction, is_active, is_claimed,
             last_active, created_at, upvotes, downvotes
         FROM moltbook_agents
+        WHERE trust_score >= 30
         ORDER BY {order}
         ''')
 

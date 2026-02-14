@@ -17,6 +17,7 @@ from iq_lawd.database import Database
 from iq_lawd.integrations.moltbook_api_client import MoltbookAPIClient
 from iq_lawd.integrations.dexscreener_client import DexScreenerClient
 from iq_lawd.integrations.council_engine import CouncilEngine
+from iq_lawd.integrations.agent_launcher import AgentLauncher
 
 app = FastAPI(title="IQLAWD - Trust Intelligence", version="5.1")
 
@@ -33,6 +34,7 @@ db = Database()
 moltbook = MoltbookAPIClient()
 dexscreener = DexScreenerClient()
 council = CouncilEngine()
+launcher = AgentLauncher()
 
 # ── Models ──────────────────────────────────────────────────
 
@@ -47,6 +49,11 @@ class ScanCAInput(BaseModel):
 
 class DebateInput(BaseModel):
     agent_id: str
+
+class LaunchAgentInput(BaseModel):
+    name: str
+    description: str
+    x_handle: str
 
 # ── API Endpoints ───────────────────────────────────────────
 
@@ -108,7 +115,6 @@ def scan_contract_address(data: ScanCAInput):
         return {"error": "Token not found on DexScreener. Ensure the CA is correct."}
     
     # Calculate Rising Star Trust Score
-    # Logics: Liquidity and Volume are key for new tokens
     liq = token_data.get('liquidity', 0) or 0
     vol = token_data.get('volume_24h', 0) or 0
     
@@ -122,24 +128,22 @@ def scan_contract_address(data: ScanCAInput):
     if token_data.get('x_handle'): trust += 15
     if any(s.get('type') == 'telegram' for s in token_data.get('socials', [])): trust += 10
     
-    # Cap at 85 (since it's unverified by Moltbook)
     trust = min(85, trust)
     
     status = "POTENTIAL"
     if trust > 60: status = "RISING STAR"
     elif trust < 20: status = "HAZARDOUS"
 
-    # Prepare for DB
     agent_info = {
-        "username": token_data['address'], # Use CA as username for now
+        "username": token_data['address'],
         "display_name": f"{token_data['name']} ({token_data['symbol']})",
-        "description": f"New agent detected via DexScreener. Network: {token_data['chain_id']}. FDV: ${token_data.get('fdv', 0):,.0f}",
+        "description": f"New agent detected via DexScreener. Net: {token_data['chain_id']}. FDV: ${token_data.get('fdv', 0):,.0f}",
         "trust_score": trust,
         "risk_status": status,
-        "karma": int(vol / 100), # Synthetic karma from volume
+        "karma": int(vol / 100),
         "followers": 0,
         "following": 0,
-        "avatar_url": "", # DexScreener doesn't always provide easy avatar URLs
+        "avatar_url": "",
         "x_handle": token_data.get('x_handle'),
         "x_avatar": "",
         "x_bio": "",
@@ -151,11 +155,12 @@ def scan_contract_address(data: ScanCAInput):
         "last_updated": datetime.now().isoformat()
     }
     
-    # Save to listings
     db.upsert_agent(agent_info)
+    db.log_activity('SCAN', ca, agent_info["display_name"])
     
     return {
         "agent_id": ca,
+        "username": ca,
         "display_name": agent_info["display_name"],
         "description": agent_info["description"],
         "trust_score": trust,
@@ -169,7 +174,6 @@ def scan_contract_address(data: ScanCAInput):
 
 
 @app.post("/analyze")
-
 def analyze_agent(data: AnalyzeInput):
     """
     Deep scan a Moltbook agent — fetches real-time data from Moltbook API.
@@ -181,25 +185,35 @@ def analyze_agent(data: AnalyzeInput):
     agent_data = moltbook.fetch_agent(username)
 
     if not agent_data:
-        # Try from DB cache
         cached = db.get_agent(username)
         if cached:
+            db.log_activity('SCAN', username, cached.get("display_name", username))
             return {
                 "agent_id": username,
+                "username": username,
+                "display_name": cached.get("display_name", username),
+                "description": cached.get("description", ""),
                 "trust_score": cached["trust_score"],
                 "risk_status": cached["risk_status"],
-                "details": dict(cached),
+                "karma": cached.get("karma", 0),
+                "followers": cached.get("followers", 0),
+                "avatar_url": cached.get("avatar_url", ""),
+                "x_handle": cached.get("x_handle", ""),
+                "x_avatar": cached.get("x_avatar", ""),
+                "post_count": cached.get("post_count", 0),
                 "source": "cached",
             }
         return {"error": f"Agent '{username}' not found on Moltbook"}
 
-    # Save to DB
     db.upsert_agent(agent_data)
     for post in agent_data.get("posts", []):
         db.upsert_post(post)
+    
+    db.log_activity('SCAN', username, agent_data["display_name"])
 
     return {
         "agent_id": username,
+        "username": username,
         "display_name": agent_data["display_name"],
         "description": agent_data["description"],
         "trust_score": agent_data["trust_score"],
@@ -221,6 +235,14 @@ def analyze_agent(data: AnalyzeInput):
         "recent_posts": agent_data.get("posts", [])[:5],
         "source": "realtime",
     }
+
+
+@app.get("/activity/recent")
+def get_recent_activity(limit: int = 10):
+    """
+    Get combined creation and scan history.
+    """
+    return db.get_recent_activity(limit=limit)
 
 
 @app.post("/debate")
@@ -262,8 +284,24 @@ def search_agents_api(q: str = "", limit: int = 10):
     return results
 
 
-@app.post("/sync")
+@app.post("/launch-agent")
+def launch_agent(data: LaunchAgentInput):
+    """
+    Launch a new Moltbook agent via IQLAWD.
+    Limit: 1 agent per Twitter/X account.
+    """
+    print(f"🚀 Agent Launch requested: {data.name} (@{data.x_handle})")
+    result = launcher.launch_agent(data.name, data.description, data.x_handle)
+    return result
 
+
+@app.get("/launch-stats")
+def launch_stats():
+    """Get launcher statistics."""
+    return launcher.get_stats()
+
+
+@app.post("/sync")
 def sync_agents():
     """
     Sync all tracked agents from Moltbook API.
@@ -274,6 +312,34 @@ def sync_agents():
         for post in agent.get("posts", []):
             db.upsert_post(post)
     return {"status": "success", "synced": len(agents)}
+
+
+@app.get("/api/v1/score")
+def get_public_score(username: str):
+    """
+    PUBLIC DEVELOPER API: Get Agent Trust Score & Stats.
+    Usage: GET /api/v1/score?username=agent_handle
+    """
+    if not username:
+        return {"error": "Missing 'username' query parameter."}
+    
+    clean_id = username.strip().replace('@', '')
+    agent = db.get_agent(clean_id)
+    
+    if not agent:
+        return {"status": "not_found", "error": f"Agent '{clean_id}' not indexed in IQLAWD."}
+        
+    return {
+        "username": agent["username"],
+        "display_name": agent.get("display_name"),
+        "trust_score": agent["trust_score"],
+        "rank": "Coming Soon", # Placeholder for global rank
+        "karma": agent.get("karma", 0),
+        "faction": agent.get("faction", "Unaligned"),
+        "risk_status": agent["risk_status"],
+        "is_active": agent["is_active"],
+        "api_documentation": "https://iqlawd.mainnet/docs"
+    }
 
 
 # ── Static Frontend ────────────────────────────────────────

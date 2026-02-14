@@ -31,7 +31,7 @@ export default function AgentSelector({ onSelect, placeholder = "Search agents..
 
             setIsLoading(true);
             try {
-                const res = await fetch(`http://62.72.46.228:8000/agents/search?q=${searchTerm}&limit=10`);
+                const res = await fetch(`/api/agents/search?q=${searchTerm}&limit=10`);
                 if (!res.ok) throw new Error("Search failed");
                 const data = await res.json();
                 if (Array.isArray(data)) {
